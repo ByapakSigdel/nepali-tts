@@ -65,9 +65,15 @@ which mitigates (but does not eliminate) the scarcity for data-poor voices.
 ![Dataset speaker distribution](dataset_speakers.png)
 *Figure 2. Clips per speaker in the Stage-A corpus (20 speakers, 2,739 clips).*
 
+![Clip duration distribution](duration_hist.png)
+*Figure 3. Clip-duration distribution; most clips fall in the 2–5 s range.*
+
 ---
 
 ## 4. Method
+
+![System pipeline](pipeline.png)
+*Figure 4. System pipeline: Nepali text (Devanagari or romanized) → frontend → VITS → ONNX → audio, fully offline.*
 
 ### 4.1 Architecture
 Multi-speaker **VITS** (`model_g` SynthesizerTrn ≈ 30 M params; `model_d` multi-period discriminator ≈ 47 M).
@@ -130,6 +136,11 @@ at ≈2.7 — the expected stable adversarial equilibrium (no mode collapse, no 
 Audio for fixed test sentences across speakers is in `eval/ne_model/`. At the current step the output has
 human timbre (vocoder transfer) and Nepali prosody, with clarity improving over training. Re-synthesize the
 latest checkpoint anytime with `scripts/13_sample.sh`.
+
+![Mel-spectrogram: ground truth vs synthesized](mel_compare.png)
+*Figure 5. Mel-spectrograms of the **same utterance**: ground-truth training clip (top) vs. the current model
+(bottom). The model recovers harmonic and formant structure — evidence it has learned acoustic structure —
+with the mildly smoothed detail typical of mid-training.*
 
 ### 6.3 Frontend (G2P) accuracy
 Empirical check of espeak-ng `ne` on representative inputs:

@@ -86,7 +86,24 @@ SLR54  & ASR, $\sim$157k utterances & CC BY-SA      & Stage B \\
 \label{fig:speakers}
 \end{figure}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{duration_hist.png}
+\caption{Clip-duration distribution of the Stage-A corpus; most clips fall in the 2--5\,s range.}
+\label{fig:durations}
+\end{figure}
+
 \section{Method}
+Figure~\ref{fig:pipeline} overviews the system: Nepali text is transliterated/phonemized in the frontend,
+synthesized by a multi-speaker VITS model, exported to ONNX, and rendered to audio --- entirely offline.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{pipeline.png}
+\caption{System pipeline: from Nepali text (Devanagari or romanized) to fully-offline speech.}
+\label{fig:pipeline}
+\end{figure*}
+
 \subsection{Architecture}
 We train a multi-speaker VITS model: the generator (SynthesizerTrn) has $\approx$30\,M parameters and the
 multi-period discriminator $\approx$47\,M. A learned speaker embedding conditions the generator; voices are
@@ -163,6 +180,20 @@ adversarial equilibrium, with no mode collapse or discriminator runaway.
 \caption{Generator loss alone: $47 \rightarrow 31$, still descending.}
 \label{fig:headline}
 \end{figure}
+
+\subsection{Qualitative Output}
+Figure~\ref{fig:mel} compares the mel-spectrogram of a ground-truth training clip against the model
+synthesizing the \emph{same} utterance. The synthesized output reproduces the harmonic and formant structure
+of natural speech --- evidence that the model has learned acoustic structure --- with the mildly smoothed
+detail typical of mid-training.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{mel_compare.png}
+\caption{Mel-spectrograms of the same utterance: ground-truth training clip (top) vs.\ the current model
+(bottom). The model recovers harmonics and formants; detail sharpens with further training.}
+\label{fig:mel}
+\end{figure*}
 
 \subsection{G2P Frontend Accuracy}
 \label{sec:g2p}

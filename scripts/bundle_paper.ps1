@@ -2,12 +2,9 @@
 # Never overwrites an existing version — auto-increments paper_overleaf_vN.zip.
 # Run from anywhere:  pwsh -File scripts\bundle_paper.ps1
 $docs  = Join-Path $PSScriptRoot "..\docs"
-$files = @(
-    (Join-Path $docs "paper.tex"),
-    (Join-Path $docs "training_losses.png"),
-    (Join-Path $docs "headline_loss.png"),
-    (Join-Path $docs "dataset_speakers.png")
-)
+# paper.tex + EVERY figure in docs/ (so new figures are always bundled for Overleaf).
+$files = @((Join-Path $docs "paper.tex")) +
+         (Get-ChildItem (Join-Path $docs "*.png") | ForEach-Object { $_.FullName })
 
 $existing = Get-ChildItem (Join-Path $docs "paper_overleaf_v*.zip") -ErrorAction SilentlyContinue
 $next = 1

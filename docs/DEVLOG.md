@@ -151,6 +151,13 @@ The hard part. VITS training on `sm_120` + WSL2 + torch 2.11 hit a chain of undo
 pdfLaTeX-safe, romanized for portability). CER eval harness `scripts/eval_cer.py` prepared (run once trained).
 - *Status:* ✅ (Overleaf-ready bundle).
 
+**6.3 Expanded figure set** (figures matter for a paper, so use them where data allows). Added via
+`scripts/make_figures.py`, from real data: a **system pipeline** diagram, a ground-truth-vs-synthesized
+**mel-spectrogram** comparison of the same utterance (shows the model recovers harmonics/formants), and a
+**clip-duration histogram**. `scripts/bundle_paper.ps1` now auto-bundles every `docs/*.png` so new figures are
+never left out of the Overleaf zip.
+- *Status:* ✅.
+
 ---
 
 ## Phase — Frontend: offline web app (2026-06-08)
