@@ -1,0 +1,26 @@
+# Large / regenerable artifacts (these live in WSL ~/voicemodel, not in this folder).
+# Datasets re-downloaded via scripts/03 + scripts/05; venv rebuilt via scripts/01 + 07;
+# warm-start ckpt via scripts/08; trained model — see README "Saving the model".
+data/
+models/
+checkpoints/
+.venv/
+venv/
+
+# Checkpoints / exported voices (too big for git -> use a GitHub Release or HuggingFace)
+*.ckpt
+*.onnx
+*.onnx.json
+
+# Generated outputs (regenerable)
+*.wav
+/tmp/
+
+# Run logs (keep notes/*.md docs, drop the logs)
+notes/*.log
+
+# Python / OS noise
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

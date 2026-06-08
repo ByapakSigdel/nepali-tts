@@ -1,0 +1,14 @@
+# Keep all text files LF in the working tree so shell/python scripts run in WSL/Linux
+# even when checked out on Windows (CRLF would break bash with "\r: command not found").
+* text=auto eol=lf
+
+# Explicit for the runnable scripts
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+
+# Binary artifacts (also gitignored, but mark for safety)
+*.wav  binary
+*.ckpt binary
+*.onnx binary
