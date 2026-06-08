@@ -153,6 +153,20 @@ pdfLaTeX-safe, romanized for portability). CER eval harness `scripts/eval_cer.py
 
 ---
 
+## Phase — Frontend: offline web app (2026-06-08)
+
+**7.1 User-facing TTS app.**
+- *Goal:* type Nepali $\rightarrow$ choose a voice $\rightarrow$ get audio, fully offline.
+- *Build:* **Gradio** web app (`frontend/app.py`): text box, speaker dropdown (reads `speaker_id_map`
+  from the model config), speed/variation sliders, auto-playing audio output. Synthesis shells out to the
+  proven `python -m piper`. Launcher `frontend/run.sh` re-exports the latest checkpoint (best-effort, with
+  fallback) then serves on `0.0.0.0:7860`.
+- *Access:* reachable from the Windows browser at `http://localhost:7860` via WSL `localhostForwarding`
+  (set in `.wslconfig`). Verified `HTTP 200`.
+- *Gotcha:* Gradio 6.0 moved the `theme=` argument from `gr.Blocks(...)` to `demo.launch(...)` (warning only);
+  fixed.
+- *Status:* ✅ Live.
+
 ## Open / ongoing
 - Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).
