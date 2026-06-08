@@ -66,7 +66,14 @@ bash scripts/10_train_autoresume.sh > notes/10_autoresume.log 2>&1
 # 9. Track progress anytime (epochs done, speed, GPU):
 bash scripts/progress.sh
 #    live view:  watch -n 10 bash scripts/progress.sh
+
+# 10. Launch the offline web app (type Nepali in Latin OR Devanagari -> audio):
+bash frontend/run.sh         # then open http://localhost:7860
 ```
+
+**Web app:** `frontend/app.py` (Gradio) — pick a voice, type romanized Nepali (e.g. `kasto cha tapaiko`)
+which auto-transliterates to Devanagari (editable preview), or type Devanagari directly, and synthesize.
+Fully offline. Romanized→Devanagari uses `indic-transliteration` (pure-Python, no torch).
 
 ---
 

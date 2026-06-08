@@ -114,8 +114,11 @@ text, selects one of the 20 speaker voices, optionally adjusts speed and variati
 app loads the exported ONNX model, runs \texttt{onnxruntime} on CPU, and serves a browser UI on
 \texttt{localhost} --- entirely offline; under WSL2 it is reachable from the Windows browser via
 \texttt{localhost} forwarding. It re-exports the latest checkpoint on launch, so the served voice tracks
-training progress. A planned extension (Section~\ref{sec:future}) additionally accepts \emph{romanized}
-(Latin-script) Nepali and code-mixed Nepali-English input via transliteration to Devanagari.
+training progress. The app also accepts \emph{romanized} (Latin-script) Nepali and code-mixed English
+(e.g.\ ``\textit{kasto cha tapaiko aaile}''): an offline rule transliterator
+(\texttt{indic-transliteration}/OPTITRANS plus a curated Nepali word and phonetic-normalization map) converts
+input to Devanagari, shown in an editable preview so the user can correct the residual errors of deterministic
+transliteration before synthesis (Section~\ref{sec:future}).
 
 \section{Experimental Setup}
 Hardware and hyperparameters are summarized in Table~\ref{tab:setup}. Training runs unattended via an
@@ -199,11 +202,14 @@ loanwords, dates, currency) and a deeper (encoder/flow) warm-start.
 
 A second direction is \emph{input flexibility and code-switched naturalness}. Many Nepali speakers type in
 Latin script (informal romanized Nepali) and freely mix English words, e.g.\ ``\textit{hello sanchai
-hunuhuncha tapai}''. We are adding a frontend that transliterates informal romanized Nepali to Devanagari and
-handles code-mixed Nepali-English tokens, so users need not type Devanagari. Beyond input, producing a
-genuinely natural, casually code-switched voice (mirroring real Nepali-English speech) is a modeling and data
-problem: it requires code-mixed training data and consistent phoneme handling for embedded English words ---
-a longer-term research phase.
+hunuhuncha tapai}''. The frontend now transliterates informal romanized Nepali to Devanagari and handles
+code-mixed Nepali-English tokens via a fully-offline rule transliterator, so users need not type Devanagari.
+This is deliberately conservative: deterministic transliteration of orthography-free romanized Nepali tops out
+near 80\% word accuracy (mitigated by the editable preview), and embedded English is rendered with a nativized
+Nepali accent; replacing the rules with a small neural transliterator is a clean offline upgrade. Beyond
+input, producing a genuinely natural, casually code-switched \emph{voice} (mirroring real Nepali-English
+speech) is a modeling and data problem: it requires code-mixed training data and consistent phoneme handling
+for embedded English words --- a longer-term research phase.
 
 Finally, expressive/emotional TTS remains a separate phase, requiring emotion-labeled data that no public
 Nepali corpus currently provides.

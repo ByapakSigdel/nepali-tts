@@ -13,6 +13,8 @@ import subprocess
 
 import gradio as gr
 
+from translit import to_devanagari  # romanized Nepali / code-mixed English -> Devanagari (offline, no torch)
+
 # ---- locate model ----
 MODEL = os.environ.get("NE_TTS_MODEL") or os.path.expanduser("~/voicemodel/frontend/model.onnx")
 if not os.path.exists(MODEL):
@@ -47,22 +49,34 @@ def synthesize(text, speaker_id, speed, variation):
 with gr.Blocks(title="Nepali TTS") as demo:
     gr.Markdown(
         "# 🗣️ Nepali Text-to-Speech\n"
-        "Type Nepali (Devanagari), choose a voice, and synthesize. Runs **fully offline**.\n"
-        "*Quality keeps improving as the model trains.*"
+        "Type Nepali in **plain English letters** (e.g. *kasto cha tapaiko aaile*) — or Devanagari. "
+        "It auto-converts to Devanagari below; **edit that box** if anything's off, then synthesize. "
+        "Runs **fully offline**. *Quality keeps improving as the model trains.*"
     )
-    txt = gr.Textbox(label="Nepali text (नेपाली पाठ)", lines=3, placeholder="नमस्ते, तपाईंलाई कस्तो छ?")
+    inp = gr.Textbox(
+        label="Type here — romanized Nepali (Latin) or Devanagari",
+        lines=2, placeholder="kasto cha tapaiko aaile   /   नमस्ते, तपाईंलाई कस्तो छ?",
+    )
+    deva = gr.Textbox(
+        label="Devanagari (auto — editable; fix before synthesizing)",
+        lines=2, interactive=True,
+    )
+    inp.change(to_devanagari, inputs=inp, outputs=deva)
     with gr.Row():
         spk = gr.Dropdown(choices=CHOICES, value=CHOICES[0][1], label=f"Voice ({len(CHOICES)} speakers)")
         speed = gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed (higher = slower)")
         variation = gr.Slider(0.0, 1.0, value=0.667, step=0.01, label="Variation (noise)")
     btn = gr.Button("🔊 Synthesize", variant="primary")
     audio = gr.Audio(label="Output audio", type="filepath", autoplay=True)
-    btn.click(synthesize, [txt, spk, speed, variation], audio)
+    btn.click(synthesize, inputs=[deva, spk, speed, variation], outputs=audio)
     gr.Examples(
-        [["नमस्ते, तपाईंलाई कस्तो छ?"], ["मेरो नाम सूर्यांश हो।"], ["आज काठमाडौंमा मौसम राम्रो छ।"]],
-        inputs=txt,
+        [["kasto cha tapaiko aaile"],
+         ["hello sanchai hunuhuncha tapai"],
+         ["mero naam suryansh ho"],
+         ["नमस्ते, तपाईंलाई कस्तो छ?"]],
+        inputs=inp,
     )
-    gr.Markdown(f"<sub>Model: `{os.path.basename(MODEL)}`</sub>")
+    gr.Markdown(f"<sub>Model: `{os.path.basename(MODEL)}` · romanized→Devanagari via indic-transliteration (offline)</sub>")
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, show_error=True, theme=gr.themes.Soft())

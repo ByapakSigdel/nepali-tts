@@ -167,6 +167,22 @@ pdfLaTeX-safe, romanized for portability). CER eval harness `scripts/eval_cer.py
   fixed.
 - *Status:* ✅ Live.
 
+**7.2 Romanized + code-mixed input.**
+- *Goal:* let users type informal romanized Nepali (Latin) and code-mixed English — e.g. "hello sanchai
+  hunuhuncha tapai" — instead of Devanagari, since the model needs Devanagari.
+- *Decision (via a 3-agent research workflow):* use **`indic-transliteration` (sanscript, OPTITRANS scheme)** —
+  pure-Python (deps: regex/typer/toml/roman/tqdm), so it does **not** touch torch 2.11. *Rejected* ai4bharat
+  IndicXlit: hard `fairseq`+`tensorflow` deps, fails on Python 3.12, and would resolve a conflicting torch.
+- *Build:* `frontend/translit.py` = a curated common-word dictionary (high accuracy on frequent words) + an
+  OPTITRANS rule fallback + a Nepali phonetic normalizer; Devanagari/punctuation/digits pass through. v1
+  code-mixing = single-script normalization (English routed through the same engine → Nepali-accented, keeps
+  espeak-ne in one language). The app gained an **editable Devanagari preview** as the safety net for the
+  ~80% deterministic-transliteration ceiling.
+- *Verified:* "kasto cha tapaiko aaile" → कस्तो छ तपाईंको अहिले; "hello sanchai hunuhuncha tapai" →
+  हेलो सञ्चै हुनुहुन्छ तपाईं; torch still 2.11.0+cu128.
+- *Status:* ✅ Live (v1). A genuinely natural, casually code-switched tone remains future work (needs
+  code-mixed Nepali-English data).
+
 ## Open / ongoing
 - Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).

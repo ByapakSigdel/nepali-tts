@@ -92,9 +92,10 @@ Trained checkpoints export to **ONNX** (`torch.onnx.export`, legacy exporter) an
 A **Gradio** web app (`frontend/app.py`) provides interactive use: enter Nepali text, pick one of the 20
 speaker voices, adjust speed/variation, get audio. It loads the exported ONNX, runs `onnxruntime` on CPU, and
 serves a browser UI on `localhost` — fully offline (reachable from the Windows browser via WSL `localhost`
-forwarding). It re-exports the latest checkpoint on launch, so the served voice tracks training. A planned
-extension accepts **romanized** (Latin-script) Nepali and code-mixed Nepali-English input via transliteration
-to Devanagari (§7).
+forwarding). It re-exports the latest checkpoint on launch, so the served voice tracks training. It **also accepts
+romanized (Latin-script) Nepali and code-mixed English** (e.g. *kasto cha tapaiko aaile*): an offline rule
+transliterator (`indic-transliteration`/OPTITRANS + a curated Nepali word/normalization map) converts input
+to Devanagari, with an **editable preview** to fix the residual ~20% before synthesis (§7).
 
 ---
 
@@ -159,11 +160,12 @@ rule-based **espeak-ng** and neural **MMS-tts-npl**.
   speakers including male; expected to be the largest quality lever.
 - **Frontend.** Add a Nepali normalization + **correction lexicon** (nasalization, loanwords, dates, currency).
 - **Warm-start depth.** Only the vocoder transfers today; a full lenient encoder/flow warm-start is future work.
-- **Input flexibility (in progress).** Many Nepali speakers type **romanized Nepali** in Latin script and mix
-  English freely (e.g. *"hello sanchai hunuhuncha tapai"*). We are adding a frontend that **transliterates
-  informal romanized Nepali to Devanagari** and handles code-mixed Nepali-English, so users need not type
-  Devanagari.
-- **Code-switched natural tone.** Producing a genuinely casual, code-switched Nepali-English voice (like real
+- **Input flexibility (done, v1).** The frontend now **transliterates informal romanized Nepali → Devanagari**
+  (offline, rule-based: `indic-transliteration`/OPTITRANS + a curated word/normalization map) and handles
+  code-mixed English, so users can type *"hello sanchai hunuhuncha tapai"* instead of Devanagari. Deterministic
+  transliteration of orthography-free romanization tops out ~80% word accuracy → editable preview as the safety
+  net; a small neural transliterator is a clean future upgrade.
+- **Code-switched natural tone.** Producing a genuinely casual, code-switched Nepali-English *voice* (like real
   speakers) is a data + modeling problem (code-mixed training data, consistent English-word phonemization) —
   a longer-term phase.
 - **Expressivity / emotions.** No public Nepali emotion-labeled corpus exists; expressive TTS requires either

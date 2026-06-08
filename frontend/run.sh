@@ -8,6 +8,9 @@ set -uo pipefail
 source ~/voicemodel/.venv/bin/activate
 export PYTHONUNBUFFERED=1
 
+# Ensure frontend deps (idempotent; both are torch-free so they won't disturb torch 2.11).
+python -c "import gradio, indic_transliteration" 2>/dev/null || pip install -q gradio "indic-transliteration==2.3.82"
+
 FE="$HOME/voicemodel/frontend"; mkdir -p "$FE"
 RUN="$HOME/voicemodel/models/ne_stageA"
 
