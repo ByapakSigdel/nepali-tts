@@ -196,6 +196,20 @@ and `REFRESH=0` skips even that). Added a **"🔄 Update to latest training chec
 latest, else fall back to the prior sample). Users can now pull in newer training mid-session.
 - *Status:* ✅.
 
+## Phase — Throughput tuning + ETA (2026-06-08)
+
+**8.1 Full-usage training** (user away from the laptop → maximize speed). Raised WSL caps
+(`.wslconfig` 8GB/8c → 12GB/14c, applied via `wsl --shutdown`), bumped `--data.batch_size` 2→4 and
+`--data.num_workers` 4→8. Result: GPU util ~50% → ~75%, throughput ~**2.85×** (2.86 it/s at batch 4 vs ~2 it/s
+at batch 2), **0 crashes**, and ~2.3 GB VRAM still free (room to push batch higher). Auto-resume still guards
+the intermittent Blackwell fault. Note: VITS trains on fixed-size segments, so VRAM scales weakly with batch
+(5.2 GB @ b2 → 5.6 GB @ b4) — larger batches are cheap.
+
+**8.2 ETA in the tracker.** `scripts/progress.sh` now estimates the rate from two reads of `status.txt`
+(fractional epochs/sec, via awk) and shows **it/s, epochs/hour, time-to-next-epoch, and ETA to a target epoch**
+(`TARGET=N`, default 100).
+- *Status:* ✅.
+
 ## Open / ongoing
 - Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).

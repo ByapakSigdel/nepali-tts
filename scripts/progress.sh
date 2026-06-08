@@ -1,40 +1,54 @@
 #!/usr/bin/env bash
-# Easy training progress tracker.
-#   One look:  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/user/Documents/VoiceModel/scripts/progress.sh
-#   Live:      wsl -d Ubuntu-24.04 -- watch -n 10 bash /mnt/c/Users/user/Documents/VoiceModel/scripts/progress.sh
+# Easy training progress tracker, with ETA.
+#   one look:  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/user/Documents/VoiceModel/scripts/progress.sh
+#   live:      wsl -d Ubuntu-24.04 -- watch -n 15 bash /mnt/c/Users/user/Documents/VoiceModel/scripts/progress.sh
+# Set TARGET=<epoch> to change the completion target used for the ETA (default 100).
 LOG="/mnt/c/Users/user/Documents/VoiceModel/notes/10_autoresume.log"
 CKPT="$HOME/voicemodel/models/ne_stageA/ckpts/last.ckpt"
 STATUS="$HOME/voicemodel/models/ne_stageA/status.txt"
-TOTAL_EPOCHS=2000
+TARGET="${TARGET:-100}"
 
-# --- live numbers from the status file the trainer writes ---
-epoch="0"; gstep="0"; sie="(starting up...)"; loss="—"; sage="never"
-if [ -f "$STATUS" ]; then
-  s=$(cat "$STATUS")
-  epoch=$(printf '%s' "$s" | grep -oE '(^| )epoch=[0-9]+' | grep -oE '[0-9]+$' | head -1)
-  gstep=$(printf '%s' "$s" | grep -oE 'global_step=[0-9]+' | cut -d= -f2)
-  sie=$(printf '%s'   "$s" | grep -oE 'step_in_epoch=[0-9]+/[0-9]+' | cut -d= -f2)
-  l=$(printf '%s'     "$s" | grep -oE 'loss=[0-9.]+' | cut -d= -f2); [ -n "$l" ] && loss="$l"
-  ts=$(printf '%s'    "$s" | grep -oE 'ts=[0-9]+' | cut -d= -f2)
-  [ -n "$ts" ] && sage="$(( $(date +%s) - ts ))s ago"
-fi
+epoch_of() { printf '%s' "$1" | grep -oE '(^| )epoch=[0-9]+' | grep -oE '[0-9]+$' | head -1; }
+sie_of()   { printf '%s' "$1" | grep -oE 'step_in_epoch=[0-9]+/[0-9]+' | cut -d= -f2; }
 
-ck="(none yet)"
-if [ -f "$CKPT" ]; then
-  ck="$(stat -c %y "$CKPT" | cut -d. -f1)  ($(( ($(date +%s) - $(stat -c %Y "$CKPT")) ))s ago)"
-fi
-attempts=$(grep -ac "ATTEMPT" "$LOG" 2>/dev/null); attempts=${attempts:-0}
+# Two reads ~7 s apart to estimate the training rate (fractional epochs / second).
+s1=$(cat "$STATUS" 2>/dev/null); t1=$(date +%s)
+sleep 7
+s2=$(cat "$STATUS" 2>/dev/null); t2=$(date +%s)
+
+ep1=$(epoch_of "$s1"); sie1=$(sie_of "$s1")
+ep2=$(epoch_of "$s2"); sie2=$(sie_of "$s2")
+loss=$(printf '%s' "$s2" | grep -oE 'loss=[0-9.]+' | cut -d= -f2)
+x1=${sie1%/*}; y1=${sie1#*/}; x2=${sie2%/*}; y2=${sie2#*/}
+
+eta=$(awk -v ep1="${ep1:-0}" -v x1="${x1:-0}" -v y1="${y1:-0}" \
+          -v ep2="${ep2:-0}" -v x2="${x2:-0}" -v y2="${y2:-0}" \
+          -v dt="$((t2 - t1))" -v target="$TARGET" '
+function fmt(s,   d, h, m, r) {
+  if (s < 0 || s != s) return "--";
+  d = int(s/86400); s = s - d*86400; h = int(s/3600); m = int((s - h*3600)/60);
+  r = ""; if (d > 0) r = r d"d "; if (h > 0 || d > 0) r = r h"h "; return r m"m";
+}
+BEGIN {
+  if (y1 < 1 || y2 < 1 || dt < 1) { print "estimating... (let it run a few seconds)"; exit }
+  ef1 = ep1 + x1/y1; ef2 = ep2 + x2/y2; eps = (ef2 - ef1)/dt;
+  if (eps <= 0) { print "estimating... (status not advancing yet)"; exit }
+  printf "%.2f it/s, %.1f epochs/hr  |  next epoch ~%s  |  ~%s to epoch %d",
+         eps*y2, eps*3600, fmt((1 - x2/y2)/eps), fmt((target - ef2)/eps), target;
+}')
+
+ck="(none yet)"; [ -f "$CKPT" ] && ck="$(( $(date +%s) - $(stat -c %Y "$CKPT") ))s ago"
+attempts=$(grep -ac ATTEMPT "$LOG" 2>/dev/null); attempts=${attempts:-0}
 crashes=$(( attempts > 0 ? attempts - 1 : 0 ))
 gpu=$(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader 2>/dev/null | head -1)
 run=$(pgrep -f "[p]iper.train" >/dev/null 2>&1 && echo "🟢 TRAINING" || echo "⚪ not running")
 
 echo "=================== Nepali TTS — Training ==================="
-echo "  Status:           $run"
-echo "  Epochs done:      ${epoch:-0} / $TOTAL_EPOCHS"
-echo "  Step in epoch:    ${sie:-—}     (updated $sage)"
-echo "  Total steps:      ${gstep:-0}"
-echo "  Loss:             $loss        (lower = better; very rough early)"
-echo "  Crashes handled:  $crashes  (auto-resumed)"
-echo "  Last checkpoint:  $ck"
-echo "  GPU:              ${gpu:-n/a}"
+echo "  Status:        $run"
+echo "  Epochs done:   ${ep2:-0}"
+echo "  This epoch:    ${sie2:-—} batches"
+echo "  Loss:          ${loss:-—}"
+echo "  Throughput:    $eta"
+echo "  Crashes:       $crashes auto-resumed   |   last checkpoint: $ck"
+echo "  GPU:           ${gpu:-n/a}"
 echo "============================================================"
