@@ -6,7 +6,7 @@
 LOG="/mnt/c/Users/user/Documents/VoiceModel/notes/10_autoresume.log"
 CKPT="$HOME/voicemodel/models/ne_stageA/ckpts/last.ckpt"
 STATUS="$HOME/voicemodel/models/ne_stageA/status.txt"
-TARGET="${TARGET:-100}"
+TARGET="${TARGET:-350}"
 
 epoch_of() { printf '%s' "$1" | grep -oE '(^| )epoch=[0-9]+' | grep -oE '[0-9]+$' | head -1; }
 sie_of()   { printf '%s' "$1" | grep -oE 'step_in_epoch=[0-9]+/[0-9]+' | cut -d= -f2; }

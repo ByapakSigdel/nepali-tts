@@ -38,7 +38,7 @@ COMMON=(
   --trainer.accelerator gpu
   --trainer.devices 1
   --trainer.precision 32-true
-  --trainer.max_epochs 2000
+  --trainer.max_epochs 350
   --trainer.default_root_dir "$RUN"
   --trainer.num_sanity_val_steps 0
   --trainer.limit_val_batches 0

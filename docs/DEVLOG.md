@@ -207,7 +207,12 @@ the intermittent Blackwell fault. Note: VITS trains on fixed-size segments, so V
 
 **8.2 ETA in the tracker.** `scripts/progress.sh` now estimates the rate from two reads of `status.txt`
 (fractional epochs/sec, via awk) and shows **it/s, epochs/hour, time-to-next-epoch, and ETA to a target epoch**
-(`TARGET=N`, default 100).
+(`TARGET=N`, default 350).
+- *Status:* ✅.
+
+**8.3 Training target = 350 epochs.** Set `--trainer.max_epochs 350` (was a 2000 placeholder cap) so the
+auto-resume loop **stops itself at epoch 350** — a defensible endpoint (~19 h from epoch ~27 at ~16.7
+epochs/hr; the loss already plateaued by ~21). `progress.sh` ETA target defaults to 350 to match.
 - *Status:* ✅.
 
 ## Open / ongoing
