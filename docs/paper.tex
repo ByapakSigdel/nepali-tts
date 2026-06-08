@@ -28,8 +28,8 @@ grapheme-to-phoneme (G2P) conversion, and exports to ONNX for dependency-light o
 model, we document a reproducible engineering recipe for training on a brand-new NVIDIA Blackwell
 (\texttt{sm\_120}) laptop GPU under WSL2 with PyTorch~2.11 --- a configuration with several currently
 undocumented failure modes. On approximately 3.8 hours of curated speech from 20 speakers, the generator loss
-decreases monotonically (47 $\rightarrow$ 31) and the model produces increasingly intelligible Nepali across
-multiple selectable voices. All code, configuration, and a clean-machine reproduction guide are released.
+drops sharply and then plateaus near 31 (typical of VITS) while perceptual quality keeps improving, and the
+model produces increasingly intelligible Nepali across multiple selectable voices. All code, configuration, and a clean-machine reproduction guide are released.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -163,9 +163,11 @@ Checkpointing & every 100 steps; fault-tolerant auto-resume \\
 \subsection{Training Dynamics}
 Figure~\ref{fig:losses} shows the generator (\texttt{loss\_g}) and discriminator (\texttt{loss\_d}) losses,
 merged across all runs by training step. The generator loss falls sharply (47 $\rightarrow$ 37) within the
-first few hundred steps as the warm-start adapts, then declines steadily to $\approx$31 by step 17.5k and
-continues to trend downward. The discriminator loss remains balanced at $\approx$2.7 --- the expected stable
-adversarial equilibrium, with no mode collapse or discriminator runaway.
+first few hundred steps as the warm-start adapts, then settles into the $\approx$31--33 range and plateaus
+through step $\approx$27k (21 epochs) --- expected for VITS, whose aggregate loss saturates while perceptual
+quality (driven by the adversarial and mel terms) keeps improving, as the mel-spectrograms in
+Fig.~\ref{fig:mel} show. The discriminator loss remains balanced at $\approx$2.7 --- a stable adversarial
+equilibrium with no mode collapse or discriminator runaway.
 
 \begin{figure}[t]
 \centering
@@ -177,7 +179,7 @@ adversarial equilibrium, with no mode collapse or discriminator runaway.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{headline_loss.png}
-\caption{Generator loss alone: $47 \rightarrow 31$, still descending.}
+\caption{Generator loss: a sharp warm-start drop ($47 \rightarrow 37$) then a $\approx$31--33 plateau through 21 epochs.}
 \label{fig:headline}
 \end{figure}
 

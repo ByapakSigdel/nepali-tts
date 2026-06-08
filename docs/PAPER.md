@@ -129,8 +129,10 @@ checkpoint after any GPU fault (Appendix A.4).
 *Figure 1. Generator (`loss_g`) and discriminator (`loss_d`) losses, all runs merged by step.*
 
 The generator loss falls sharply (≈47 → ≈37) within the first few hundred steps as the warm-start adapts, then
-declines steadily to **≈31.4** by step 17.5k and is still trending down. The discriminator loss stays balanced
-at ≈2.7 — the expected stable adversarial equilibrium (no mode collapse, no discriminator runaway).
+settles into the **≈31–33 range and plateaus** through step ≈27k (21 epochs) — expected for VITS, whose
+aggregate loss saturates while perceptual quality (adversarial + mel terms) keeps improving (see the
+mel-spectrograms, Fig. 5). The discriminator loss stays balanced at ≈2.7 — a stable adversarial equilibrium
+(no mode collapse, no discriminator runaway).
 
 ### 6.2 Qualitative samples
 Audio for fixed test sentences across speakers is in `eval/ne_model/`. At the current step the output has
