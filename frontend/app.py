@@ -8,6 +8,7 @@ else falls back to ~/voicemodel/_sample/ne.onnx. Synthesis shells out to the pro
 """
 import os
 import json
+import shutil
 import tempfile
 import subprocess
 
@@ -15,10 +16,39 @@ import gradio as gr
 
 from translit import to_devanagari  # romanized Nepali / code-mixed English -> Devanagari (offline, no torch)
 
-# ---- locate model ----
-MODEL = os.environ.get("NE_TTS_MODEL") or os.path.expanduser("~/voicemodel/frontend/model.onnx")
+# ---- model paths ----
+HOME = os.path.expanduser("~")
+MODEL = os.environ.get("NE_TTS_MODEL") or f"{HOME}/voicemodel/frontend/model.onnx"  # live served model (refreshable)
+CKPT = f"{HOME}/voicemodel/models/ne_stageA/ckpts/last.ckpt"
+RUNCFG = f"{HOME}/voicemodel/models/ne_stageA/config.json"
+SAMPLE = f"{HOME}/voicemodel/_sample/ne.onnx"
+
+
+def export_latest():
+    """Export the LATEST training checkpoint -> MODEL. Returns (ok, message)."""
+    if not os.path.exists(CKPT):
+        return False, "No training checkpoint found yet."
+    try:
+        tmp = f"{HOME}/voicemodel/frontend/cur.ckpt"
+        shutil.copy(CKPT, tmp)  # atomic source (Lightning renames) — safe while training
+        r = subprocess.run(
+            ["python", "-m", "piper.train.export_onnx", "--checkpoint", tmp, "--output-file", MODEL],
+            stderr=subprocess.PIPE,
+        )
+        if r.returncode != 0 or not os.path.exists(MODEL):
+            return False, "Export failed: " + r.stderr.decode("utf-8", "ignore")[-200:]
+        shutil.copy(RUNCFG, MODEL + ".json")
+        return True, "Updated to the latest training checkpoint."
+    except Exception as e:
+        return False, f"Export error: {e}"
+
+
+# Ensure a model exists at startup (run.sh usually exported one already; this is a fallback).
 if not os.path.exists(MODEL):
-    MODEL = os.path.expanduser("~/voicemodel/_sample/ne.onnx")
+    ok, _ = export_latest()
+    if not ok and os.path.exists(SAMPLE):
+        shutil.copy(SAMPLE, MODEL)
+        shutil.copy(SAMPLE + ".json", MODEL + ".json")
 CONFIG = MODEL + ".json"
 
 with open(CONFIG, encoding="utf-8") as f:
@@ -53,6 +83,17 @@ with gr.Blocks(title="Nepali TTS") as demo:
         "It auto-converts to Devanagari below; **edit that box** if anything's off, then synthesize. "
         "Runs **fully offline**. *Quality keeps improving as the model trains.*"
     )
+
+    with gr.Row():
+        upd_btn = gr.Button("🔄 Update to latest training checkpoint", size="sm", scale=0)
+        upd_status = gr.Markdown("")
+
+    def _update_click():
+        ok, msg = export_latest()
+        return ("✅ " if ok else "⚠️ ") + msg
+
+    upd_btn.click(_update_click, outputs=upd_status)
+
     inp = gr.Textbox(
         label="Type here — romanized Nepali (Latin) or Devanagari",
         lines=2, placeholder="kasto cha tapaiko aaile   /   नमस्ते, तपाईंलाई कस्तो छ?",

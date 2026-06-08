@@ -190,6 +190,12 @@ never left out of the Overleaf zip.
 - *Status:* ✅ Live (v1). A genuinely natural, casually code-switched tone remains future work (needs
   code-mixed Nepali-English data).
 
+**7.3 Live model refresh.** The served voice could go stale (the app bakes in the checkpoint only at launch,
+and `REFRESH=0` skips even that). Added a **"🔄 Update to latest training checkpoint"** button that re-exports
+`last.ckpt` → the served ONNX *live* (no restart); the app also ensures a model exists at startup (export
+latest, else fall back to the prior sample). Users can now pull in newer training mid-session.
+- *Status:* ✅.
+
 ## Open / ongoing
 - Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).
