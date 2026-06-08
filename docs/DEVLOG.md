@@ -1,0 +1,159 @@
+# Engineering Devlog — Nepali Multi-Speaker TTS
+
+A chronological lab notebook of **every notable problem, its root cause, and the fix**. This is the
+detailed companion to [`../PLAN.md`](../PLAN.md) (plan + status) and [`paper.tex`](paper.tex) (formal writeup).
+
+**Entry format:** *Problem → Symptom → Root cause → Fix → Status.* Newest at the bottom. Append as we go.
+
+---
+
+## Phase 0 — Environment (2026-06-03)
+
+**0.1 GPU usability on a brand-new Blackwell laptop GPU.**
+- *Symptom:* RTX 5050 Laptop is `sm_120` (Blackwell); most PyTorch builds only support up to `sm_90`.
+- *Root cause:* Stable PyTorch wheels lag new GPU architectures.
+- *Fix:* Install PyTorch **cu128** wheels (`--index-url https://download.pytorch.org/whl/cu128`) → torch
+  2.11.0+cu128, which has `sm_120` kernels. Verified: `torch.cuda.get_device_capability` = (12,0), GPU matmul OK.
+- *Status:* ✅ Resolved.
+
+**0.2 Linux tooling on Windows.**
+- *Fix:* Use WSL2 **Ubuntu-24.04** (Python 3.12). GPU is visible inside WSL via the Windows driver. Keep code on
+  `/mnt/c`, but data/venv/checkpoints on the WSL-native fs (`~/voicemodel`) for I/O speed.
+- *Status:* ✅. (sudo needs a password → system-package installs are a manual user step.)
+
+---
+
+## Phase 1–3 — Data & baseline (2026-06-08)
+
+**1.1 OpenSLR dataset identities were not what their numbers implied.**
+- *Symptom:* Assumed SLR43 = big ASR set.
+- *Root cause:* Misremembered. Verified from openslr.org: **SLR43** = multi-speaker female TTS (800 MB),
+  **SLR54** = large ASR ~157k utts (~9 GB), **SLR143** = male+female TTS (165 MB).
+- *Fix:* Staged plan — Stage A = SLR43+SLR143 (TTS-grade, ~965 MB); Stage B = SLR54 later.
+- *Status:* ✅.
+
+**1.2 Download script exited 141 ("failed") but data was fine.**
+- *Root cause:* A trailing `find … | head` tripped `set -o pipefail` (SIGPIPE) *after* all real work succeeded.
+- *Fix:* Recognize cosmetic pipefail; data verified intact.
+- *Status:* ✅.
+
+**1.3 torchaudio.load broken in torch 2.11.**
+- *Symptom:* `TorchCodec is required for load_with_torchcodec`.
+- *Root cause:* torchaudio 2.11 moved I/O to a separate TorchCodec package.
+- *Fix:* Load with **soundfile** instead; resample with `torchaudio.functional.resample` (math only, no codec).
+- *Status:* ✅.
+
+**3.1 MMS baseline model id + input format.**
+- *Symptom:* `facebook/mms-tts-npi` → 401; then Devanagari → empty tokens → crash.
+- *Root cause:* Correct id is **`mms-tts-npl`**; its tokenizer vocab is **romanized Latin** (its `is_uroman`
+  flag wrongly reports False).
+- *Fix:* Use `npl`; romanize Devanagari with **uroman** before tokenizing.
+- *Status:* ✅ (baseline audio generated).
+
+---
+
+## Phase 4 — The Blackwell training saga (2026-06-08)
+
+The hard part. VITS training on `sm_120` + WSL2 + torch 2.11 hit a chain of undocumented failures.
+
+**4.1 TorchScript fused-op crash.**
+- *Symptom:* `RuntimeError … TorchScript interpreter … CUDA out of memory. Tried to allocate 20 MiB`
+  (with ~6 GB free — i.e. not a real OOM), inside `fused_add_tanh_sigmoid_multiply`.
+- *Root cause:* VITS decorates that op with `@torch.jit.script`; the JIT kernel fails on `sm_120`, surfaced
+  as a bogus OOM.
+- *Fix:* `export PYTORCH_JIT=0` (run the op eagerly).
+- *Status:* ✅ (got past it; revealed 4.2).
+
+**4.2 `expandable_segments` spurious OOM under WSL.**
+- *Symptom:* After adding `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, OOM with
+  "this process has 17179869184.00 GiB memory in use" (16 EiB — garbage).
+- *Root cause:* `expandable_segments` uses CUDA virtual-memory APIs that are broken under WSL2; the bogus
+  accounting line appeared **only** with that flag set.
+- *Fix:* **Do not** set `expandable_segments`. (This was self-inflicted by my "memory hygiene" over-correction.)
+- *Status:* ✅.
+
+**4.3 Precision: bf16 and fp16 both unusable.**
+- *Symptom:* `bf16-mixed` → `RuntimeError: cuFFT doesn't support tensor of type: BFloat16`. `16-mixed` → trained
+  ~16 steps then a CUDA fault.
+- *Root cause:* cuFFT has no bf16 path (mel STFT); fp16 uses an experimental "ComplexHalf" FFT that is unstable
+  on Blackwell.
+- *Fix:* Use **`32-true` (fp32)** — fully supported, no experimental paths.
+- *Status:* ✅.
+
+**4.4 Intermittent backward-pass `CUDA error: unknown error`.** *(the big one)*
+- *Symptom:* With fp32 it trained much further (step 163, then 304) but still crashed at *random* steps inside
+  `loss.backward()`. Non-deterministic → not a config/code bug. Worse at higher batch (batch8→step16,
+  batch4→step163/304).
+- *Root cause:* A **known Blackwell `sm_120` driver fault** in the backward pass (corroborated by an NVIDIA dev
+  forum report).
+- *Fixes (layered):* (a) NVIDIA driver **596.36 → 610.47** roughly halved the crash rate; (b) batch size 2;
+  (c) an **auto-resume loop** (`scripts/10_train_autoresume.sh`) that checkpoints every 100 steps and restarts
+  from `last.ckpt` after any fault → training is unattended and fault-tolerant.
+- *Tried and rejected:* `CUDA_LAUNCH_BLOCKING=1` made it stable but **~50× too slow** (~1 step/min) — unusable.
+- *Status:* 🟡 Mitigated, not eliminated. Training progresses reliably via auto-resume.
+
+**4.5 PowerShell wrapper OOM on big error dumps; WSL daemon got reaped.**
+- *Root cause:* Piping huge tracebacks through PowerShell `Tee-Object` exhausted the PS process; and a
+  `setsid nohup` daemon launched via `wsl -- …` is torn down when the launching `wsl` command returns.
+- *Fix:* Redirect logs **inside** WSL (`> log 2>&1`); run the loop as a harness-tracked background task (keeps
+  a live `wsl` process holding the session open).
+- *Status:* ✅.
+
+**4.6 WSL wedged after repeated GPU faults; `wsl --shutdown` hung.**
+- *Symptom:* All `wsl` commands returned empty; `wsl --shutdown` hung. Host `nvidia-smi` worked (GPU idle).
+- *Root cause:* Repeated CUDA faults left the GPU/WSL VM in a stuck state.
+- *Fix:* **Full Windows reboot** (clean slate; also applied new `.wslconfig` resource caps + the new driver).
+- *Status:* ✅.
+
+**4.7 Training "stuck at epoch 0" / GPU looked idle.**
+- *Symptom:* After reboot, tracker showed 0 for ~28 min; no checkpoint saved; GPU ~16% util.
+- *Root causes:* (a) Windows Task Manager shows the **"3D" engine** by default — WSL CUDA load is on the
+  **"Cuda"/"Compute" engine** (a different, hidden graph), so it *looked* idle; (b) genuinely ~20× too slow,
+  starved for data.
+- *Fix for (b):* **`--data.num_workers 4`** (feed the GPU) and removed the `nice -n 10` priority handicap;
+  kept WSL RAM/core caps (`.wslconfig`) for host responsiveness. Result: real progress, loss dropping.
+- *Status:* ✅.
+
+**4.8 No live progress in the log (tracker stuck on "starting up").**
+- *Symptom:* Lightning's progress bar writes nothing to a redirected (non-TTY) log → no epoch/step visible.
+- *Fix:* A small Lightning callback **`scripts/status_writer.py`** writes `epoch/step/loss` to `status.txt`
+  every 10 steps; `scripts/progress.sh` reads it. (Plus a parser bug: `grep 'epoch='` also matched
+  `step_in_epoch=` → anchored it to `(^| )epoch=`.)
+- *Status:* ✅ (live tracker works).
+
+---
+
+## Phase — Inference / sampling (2026-06-08)
+
+**5.1 ONNX export — missing dep then exporter failure.**
+- *Symptom:* `ModuleNotFoundError: onnxscript`; then the torch-2.11 **dynamo** exporter failed on VITS spline
+  flows (`rational_quadratic_spline` discriminant assertion).
+- *Fix:* `pip install onnxscript`; patch `export_onnx.py` to use the **legacy exporter** (`dynamo=False`).
+  (Also: don't set `PYTORCH_JIT=0` for export — the legacy exporter needs JIT tracing; the JIT issue was
+  GPU-training-only and we export on CPU.)
+- *Status:* ✅ (77 MB ONNX exported).
+
+**5.2 piper inference ignored `-c` and looked for `<model>.onnx.json`.**
+- *Fix:* Copy the training `config.json` to `ne.onnx.json` next to the model.
+- *Status:* ✅ (first Nepali audio synthesized across speakers).
+
+---
+
+## Phase — Documentation (2026-06-08)
+
+**6.1 Fragmented training logs across 20 versions.**
+- *Root cause:* Every restart created a new `lightning_logs/version_N`.
+- *Fix:* `scripts/plot_training.py` (tbparse) merges all tfevents by step → `docs/*.png`. Result so far:
+  `loss_g` 47→31 (descending), `loss_d` ~2.7 (stable).
+- *Status:* ✅.
+
+**6.2 Research paper.** Markdown ([`PAPER.md`](PAPER.md)) + LaTeX ([`paper.tex`](paper.tex), IEEEtran,
+pdfLaTeX-safe, romanized for portability). CER eval harness `scripts/eval_cer.py` prepared (run once trained).
+- *Status:* ✅ (Overleaf-ready bundle).
+
+---
+
+## Open / ongoing
+- Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
+- Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).
+- Upload trained model to a GitHub Release; emotions = future phase (needs emotion-labeled data — none public for Nepali).
