@@ -108,6 +108,15 @@ mismatch and is future work.
 Trained checkpoints are exported to ONNX (legacy exporter) and run via \texttt{onnxruntime} on CPU --- no GPU
 or network required at inference. This is the deployable artifact.
 
+\subsection{Deployment: Offline Web Frontend}
+For interactive use we provide a Gradio web application (\texttt{frontend/app.py}). The user enters Nepali
+text, selects one of the 20 speaker voices, optionally adjusts speed and variation, and receives audio. The
+app loads the exported ONNX model, runs \texttt{onnxruntime} on CPU, and serves a browser UI on
+\texttt{localhost} --- entirely offline; under WSL2 it is reachable from the Windows browser via
+\texttt{localhost} forwarding. It re-exports the latest checkpoint on launch, so the served voice tracks
+training progress. A planned extension (Section~\ref{sec:future}) additionally accepts \emph{romanized}
+(Latin-script) Nepali and code-mixed Nepali-English input via transliteration to Devanagari.
+
 \section{Experimental Setup}
 Hardware and hyperparameters are summarized in Table~\ref{tab:setup}. Training runs unattended via an
 auto-resume loop that checkpoints every 100 steps and restarts from the last checkpoint after any GPU fault.
@@ -182,11 +191,22 @@ checkpoints yield near-100\% CER, meaningful values are reported once the loss p
 baselines: rule-based espeak-ng and neural MMS-tts-npl.
 
 \section{Limitations and Future Work}
+\label{sec:future}
 The reported numbers are mid-training; quality and CER will improve. The corpus is small ($\sim$3.8\,h),
 female-heavy, and has a single male voice; Stage~B (SLR54, $\sim$157k utterances) is expected to be the
 largest quality lever. Planned work includes a Nepali normalization and correction lexicon (nasalization,
-loanwords, dates, currency), a deeper (encoder/flow) warm-start, and --- as a separate research phase ---
-expressive/emotional TTS, which requires emotion-labeled data that no public Nepali corpus currently provides.
+loanwords, dates, currency) and a deeper (encoder/flow) warm-start.
+
+A second direction is \emph{input flexibility and code-switched naturalness}. Many Nepali speakers type in
+Latin script (informal romanized Nepali) and freely mix English words, e.g.\ ``\textit{hello sanchai
+hunuhuncha tapai}''. We are adding a frontend that transliterates informal romanized Nepali to Devanagari and
+handles code-mixed Nepali-English tokens, so users need not type Devanagari. Beyond input, producing a
+genuinely natural, casually code-switched voice (mirroring real Nepali-English speech) is a modeling and data
+problem: it requires code-mixed training data and consistent phoneme handling for embedded English words ---
+a longer-term research phase.
+
+Finally, expressive/emotional TTS remains a separate phase, requiring emotion-labeled data that no public
+Nepali corpus currently provides.
 
 \section{Conclusion}
 A reproducible, fully offline multi-speaker Nepali TTS system is achievable from public data on a single
