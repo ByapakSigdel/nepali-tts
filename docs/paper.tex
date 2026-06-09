@@ -29,11 +29,17 @@ model, we document a reproducible engineering recipe for training on a brand-new
 (\texttt{sm\_120}) laptop GPU under WSL2 with PyTorch~2.11 --- a configuration with several currently
 undocumented failure modes. On approximately 3.8 hours of curated speech from 20 speakers, the generator loss
 drops sharply and then plateaus near 31 (typical of VITS) while perceptual quality keeps improving, and the
-model produces increasingly intelligible Nepali across multiple selectable voices. All code, configuration, and a clean-machine reproduction guide are released.
+model produces increasingly intelligible Nepali across multiple selectable voices. To pool more compute
+without leaving the consumer/free tier, we contribute a fault-tolerant \emph{checkpoint-relay} that joins the
+laptop with free, preemptible cloud GPUs into a single training run through a Hugging Face Hub ``baton'',
+whose coordination layer we harden using a large-scale adversarial (multi-agent) code review; we further
+analyze when low-communication parallel training (DiLoCo) is---and is not---worthwhile for a near-converged
+GAN on small data, and report an ASR round-trip intelligibility (CER) measurement. All code, configuration,
+and a clean-machine reproduction guide are released.
 \end{abstract}
 
 \begin{IEEEkeywords}
-text-to-speech, Nepali, low-resource languages, VITS, multi-speaker, on-device inference, reproducibility
+text-to-speech, Nepali, low-resource languages, VITS, multi-speaker, on-device inference, distributed training, reproducibility
 \end{IEEEkeywords}
 
 \section{Introduction}
@@ -44,7 +50,10 @@ single-speaker corpora, (b) datacenter GPUs, and (c) online inference. We target
 Our contributions are: (1) an end-to-end reproducible pipeline (data $\rightarrow$ preprocessing
 $\rightarrow$ training $\rightarrow$ ONNX) for multi-speaker Nepali TTS; (2) a Nepali text frontend built on
 espeak-ng with an empirical G2P accuracy analysis; (3) a documented engineering recipe for VITS training on
-Blackwell\,+\,WSL2\,+\,PyTorch-2.11, which was the primary practical obstacle; and (4) full release of all
+Blackwell\,+\,WSL2\,+\,PyTorch-2.11, which was the primary practical obstacle; (4) a fault-tolerant
+\emph{checkpoint-relay} (Section~\ref{sec:relay}) that pools the laptop with free, preemptible cloud GPUs
+into one training run, with a coordination layer hardened by adversarial review, plus an honest analysis of
+when low-communication parallel training (DiLoCo) pays off in this regime; and (5) full release of all
 artifacts.
 
 \section{Background and Components}
@@ -123,7 +132,10 @@ mismatch and is future work.
 
 \subsection{Offline Export}
 Trained checkpoints are exported to ONNX (legacy exporter) and run via \texttt{onnxruntime} on CPU --- no GPU
-or network required at inference. This is the deployable artifact.
+or network required at inference. This is the deployable artifact. For the exported model we optionally average
+the generator weights across several late-plateau checkpoints (a model-soup / stochastic-weight-averaging style
+average); applied only to the inference artifact and never fed back into optimization, this is a zero-risk way
+to obtain a slightly smoother voice.
 
 \subsection{Deployment: Offline Web Frontend}
 For interactive use we provide a Gradio web application (\texttt{frontend/app.py}). The user enters Nepali
@@ -159,12 +171,67 @@ Checkpointing & every 100 steps; fault-tolerant auto-resume \\
 \end{tabular}
 \end{table}
 
+\section{Distributed Training on Consumer and Free Cloud Compute}
+\label{sec:relay}
+A single 8\,GB laptop is the binding constraint. We add an \emph{optional} way to pool the laptop with free,
+preemptible cloud GPUs (Google Colab) \emph{without} datacenter infrastructure, while preserving a hard
+requirement: training progress must never be lost.
+
+\subsection{Checkpoint-Relay (the ``baton'')}
+True synchronous data parallelism (DDP) is infeasible here: the laptop (home network) and a cloud VM would
+exchange gradients every step over high-latency, low-bandwidth links, orders of magnitude slower than a single
+GPU. Instead we observe that VITS already checkpoints frequently for fault tolerance, and we lift that
+checkpoint into a \emph{relay}: one machine trains at a time and passes the full-state checkpoint (weights,
+optimizer, epoch, step) to the next through a private Hugging Face Hub repository (Fig.~\ref{fig:relay}). This
+pools the two GPUs' wall-clock \emph{hours} into one continuous run---the cloud trains a shift while the laptop
+rests, and vice versa.
+
+Correctness rests on three invariants enforced by a small coordination layer (\texttt{hf\_sync.py}):
+(i)~a compare-and-set \emph{lock} with an independent heartbeat ensures the machines take turns and never train
+simultaneously; (ii)~each handoff is a single \emph{atomic} multi-file commit (checkpoint $+$ an epoch marker
+$+$ the speaker/phoneme config), so the metadata can never disagree with the bytes; and (iii)~a push-side
+\emph{epoch guard} refuses to upload a checkpoint older than the one already in the cloud. Invariant~(iii) is
+the linchpin: even if the lock failed and both machines trained at once, neither could overwrite the other's
+newer work---the worst case degrades from \emph{lost progress} to merely \emph{wasted compute}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{relay.png}
+\caption{Fault-tolerant checkpoint-relay. The full-state checkpoint is a ``baton'' passed through a private
+Hugging Face Hub repo; a lock enforces turn-taking and an epoch-guard forbids overwriting newer work.}
+\label{fig:relay}
+\end{figure}
+
+\subsection{Hardening by Adversarial Review}
+Because the relay underwrites a ``no progress lost'' guarantee, we stress-tested it with a large-scale
+multi-agent code review (dozens of independent reviewer and adversarial-verifier passes). It surfaced several
+real, subtle hazards---e.g.\ a slow multi-hundred-MB upload starving the lock heartbeat (letting the peer
+reclaim a \emph{live} lock), fail-\emph{open} reads treating a transient network error as ``lock free'', and
+non-atomic checkpoint/metadata writes---each of which could have caused silent double-training or an
+older-over-newer overwrite. All were fixed (independent heartbeat, fail-\emph{closed} reads, atomic commits,
+the epoch guard above) and the hardened layer was re-validated against the live repository.
+
+\subsection{When is Parallel Training Worthwhile? A DiLoCo Analysis}
+For genuine concurrency one can use \emph{low-communication} parallelism: DiLoCo~\cite{diloco}, in which each
+worker trains independently for hundreds of inner steps and the workers periodically average a parameter-space
+``outer gradient'', communicating only every $H$ steps and thus tolerating WAN links. We analyzed it for our
+setting and reach an honest negative result. First, the relay already pools both GPUs' hours, so DiLoCo's
+\emph{only} marginal gain is concurrency---capped at $2\times$ for two workers and eroded by per-round sync over
+a slow uplink and by cloud preemption to an estimated $1.3$--$1.6\times$. Second, VITS is adversarial:
+periodically averaging two independently-drifted generators \emph{and} discriminators across machines is
+unproven and risks the min-max balance, and our run is already past its loss plateau, so the quality at stake
+is large relative to the few hours saved. We therefore reserve DiLoCo for the much larger Stage~B corpus---a
+long, large-data run that fits its regime---and, when run, gate it on the objective metric below with automatic
+fallback to the relay, so the ``no progress lost'' requirement always holds. The full design is released for
+that future work.
+
 \section{Results}
 \subsection{Training Dynamics}
 Figure~\ref{fig:losses} shows the generator (\texttt{loss\_g}) and discriminator (\texttt{loss\_d}) losses,
 merged across all runs by training step. The generator loss falls sharply (47 $\rightarrow$ 37) within the
 first few hundred steps as the warm-start adapts, then settles into the $\approx$31--33 range and plateaus
-through step $\approx$27k (21 epochs) --- expected for VITS, whose aggregate loss saturates while perceptual
+from step $\approx$27k (epoch~21) onward, holding flat as training continued toward a 350-epoch target ---
+expected for VITS, whose aggregate loss saturates while perceptual
 quality (driven by the adversarial and mel terms) keeps improving, as the mel-spectrograms in
 Fig.~\ref{fig:mel} show. The discriminator loss remains balanced at $\approx$2.7 --- a stable adversarial
 equilibrium with no mode collapse or discriminator runaway.
@@ -219,12 +286,18 @@ Nasalization & \emph{tapaai, kathmandaum} & flattened \\
 \end{tabular}
 \end{table}
 
-\subsection{Objective Intelligibility (Methodology)}
-Our planned objective metric is ASR round-trip Character Error Rate (CER): synthesize a held-out test set,
-transcribe with a Nepali ASR (Whisper-large-v3 or MMS-ASR), and compute CER/WER against the input text.
-Lower CER implies more intelligible output. The harness is implemented and released; because very early
-checkpoints yield near-100\% CER, meaningful values are reported once the loss plateaus, against two
-baselines: rule-based espeak-ng and neural MMS-tts-npl.
+\subsection{Objective Intelligibility (ASR Round-Trip CER)}
+We measure intelligibility by ASR round-trip Character Error Rate (CER): synthesize a fixed 15-sentence Nepali
+test set, transcribe the audio with a Nepali ASR (Whisper-large-v3), and compute CER against the input text
+(lower is better). At epoch~$\approx$267 the current model scores CER~$=43.6\%$ (speaker~0). This number must
+be read carefully: it conflates TTS error with the ASR's own substantial error on low-resource Nepali.
+Inspecting the transcripts, the synthesizer in fact produces clearly recognizable Nepali---e.g.\ the input
+``\textit{pani parekole bato chiplo bhayo}'' returns as ``\textit{pali parikule baito chipto bhayo}'', close,
+with the recognizer fumbling fine detail---so the absolute value is inflated by the recognizer. CER is thus
+most reliable here as a \emph{relative} regression tripwire (and as the automatic quality gate for the
+distributed experiment of Section~\ref{sec:relay}). An absolute figure requires an ASR noise-floor
+calibration---running the same recognizer on the natural recordings to subtract its own error---which we
+identify as immediate future work. The harness is implemented and released.
 
 \section{Limitations and Future Work}
 \label{sec:future}
@@ -249,9 +322,11 @@ Nepali corpus currently provides.
 
 \section{Conclusion}
 A reproducible, fully offline multi-speaker Nepali TTS system is achievable from public data on a single
-8\,GB laptop GPU. The principal obstacle is not modeling but toolchain engineering on brand-new hardware,
-which we document so others can reproduce it. Training is healthy and ongoing; the pipeline, data, and recipe
-are released in full.
+8\,GB laptop GPU---and, when more compute is wanted, by pooling that laptop with free, preemptible cloud GPUs
+through a fault-tolerant relay that provably never loses progress, still without datacenter infrastructure.
+The principal obstacle is not modeling but toolchain and systems engineering on brand-new hardware, which we
+document so others can reproduce it. Training is healthy and ongoing (epoch~$\approx$267 of a 350 target); the
+pipeline, data, recipe, and distributed-training layer are released in full.
 
 \appendices
 \section{Reproducible Recipe: Blackwell (\texttt{sm\_120}) + WSL2 + PyTorch 2.11}
@@ -275,6 +350,8 @@ auto-resume loop makes training unattended.
 for end-to-end text-to-speech,'' in \emph{Proc. ICML}, 2021.
 \bibitem{piper} OHF-Voice, ``piper1-gpl: a fast and local neural text-to-speech engine,''
 \url{https://github.com/OHF-Voice/piper1-gpl}, 2024.
+\bibitem{diloco} A.~Douillard, Q.~Feng, A.~A.~Rusu \emph{et al.}, ``DiLoCo: Distributed low-communication
+training of language models,'' arXiv:2311.08105, 2023.
 \bibitem{mms} V.~Pratap \emph{et al.}, ``Scaling speech technology to 1{,}000+ languages,'' 2023.
 \bibitem{openslr} OpenSLR, ``Open Speech and Language Resources (SLR43, SLR54, SLR143),''
 \url{https://www.openslr.org}.

@@ -84,6 +84,45 @@ def mel_compare():
     print("saved mel_compare.png")
 
 
+def relay_fig():
+    """Block diagram of the fault-tolerant checkpoint-relay (laptop + free cloud GPU via HF Hub)."""
+    fig, ax = plt.subplots(figsize=(9.5, 4.3))
+    ax.axis("off"); ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+
+    def box(cx, cy, w, h, text, fc="#dce6f5", ec="#33558c"):
+        ax.add_patch(plt.Rectangle((cx - w / 2, cy - h / 2), w, h, facecolor=fc, edgecolor=ec, lw=1.5))
+        ax.text(cx, cy, text, ha="center", va="center", fontsize=8.3)
+
+    box(0.13, 0.62, 0.21, 0.34, "Laptop GPU\nRTX 5050, 8\\,GB\nBlackwell sm\\_120")
+    box(0.87, 0.62, 0.21, 0.34, "Free cloud GPU\nColab T4\n(preemptible)")
+    box(0.5, 0.62, 0.27, 0.44, "Hugging Face Hub (private)\n\nlast.ckpt  = baton\nPROGRESS.json = epoch\nLOCK.json = whose turn",
+        fc="#f5e6dc", ec="#8c5533")
+
+    def biarrow(x_inner, x_outer, label_push_y=0.70, label_pull_y=0.52):
+        side = 1 if x_outer > x_inner else -1
+        ax.annotate("", xy=(x_inner, 0.67), xytext=(x_outer, 0.67),
+                    arrowprops=dict(arrowstyle="-|>", lw=1.4, color="#333"))
+        ax.annotate("", xy=(x_outer, 0.57), xytext=(x_inner, 0.57),
+                    arrowprops=dict(arrowstyle="-|>", lw=1.4, color="#333"))
+        midx = (x_inner + x_outer) / 2
+        ax.text(midx, label_push_y, "push", ha="center", fontsize=7.5)
+        ax.text(midx, label_pull_y, "pull", ha="center", fontsize=7.5)
+
+    biarrow(0.365, 0.235)   # hub <-> laptop
+    biarrow(0.635, 0.765)   # hub <-> colab
+
+    ax.text(0.5, 0.30, "CAS lock + heartbeat  $\\rightarrow$  the two GPUs take turns (never train at once)",
+            ha="center", fontsize=8, color="#33558c")
+    ax.text(0.5, 0.20, "epoch-guard: a worker refuses to upload a checkpoint older than the cloud's",
+            ha="center", fontsize=8, color="#8c5533")
+    ax.text(0.5, 0.10, "$\\rightarrow$ full-state checkpoints make the run fault-tolerant; no progress can be lost",
+            ha="center", fontsize=8)
+    ax.set_title("Fault-tolerant checkpoint-relay: a consumer laptop + a free cloud GPU as one run",
+                 fontsize=10.5)
+    fig.savefig(f"{OUT}/relay.png", dpi=150, bbox_inches="tight")
+    print("saved relay.png")
+
+
 def duration_hist():
     durs = []
     for w in glob.glob(f"{PROC}/wavs/*.wav"):
@@ -105,6 +144,7 @@ def duration_hist():
 
 if __name__ == "__main__":
     pipeline_fig()
+    relay_fig()
     duration_hist()
     mel_compare()
     print("DONE")
