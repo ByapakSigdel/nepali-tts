@@ -405,6 +405,16 @@ speakers** before reaching the bad last shard, so the loss is only ~8h and no wh
 `06b_preprocess_slr54.py` to skip corrupt zips and continue. Stage-B corpus: **527 speakers, ~112h,
 22.05kHz** in `data/processed_b/`.
 
+**12.7 Stage B LAUNCHED.** `configs/train_ne_stageB.yaml` + `scripts/12_train_stageB.sh` (mirror of the
+Stage-A auto-resume loop, but `data/processed_b`, `models/ne_stageB`, `--model.num_speakers 527`,
+warm-start from `stageB_warmstart.ckpt`, `max_epochs 100`). Stopped the plateaued Stage-A run (epoch
+~280) + its snapshot loop to free the GPU. Stage B started cleanly: fresh start → smart warm-start, GPU
+engaged, first-run phonemization of 128k transcripts (~10-30 min) then training at epoch 0. Note: at
+batch 2 an epoch is ~64k steps (~50x Stage A's), so meaningful quality should appear within just a few
+epochs; track with `RUN=ne_stageB LOG=.../notes/12_stageB.log TARGET=100 bash scripts/progress.sh`.
+`progress.sh` is now `RUN=`-parameterized. This is the long run where full-usage mode + the Colab relay
+(pin piper to `2a60c2b`) become worthwhile.
+
 ## Open / ongoing
 - ASR-floor calibration to make CER meaningful; then track CER across epochs.
 - At epoch 350: harvest `soup_export.py` for the final exported voice; compare CER vs single ckpt.

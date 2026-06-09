@@ -3,9 +3,10 @@
 #   one look:  wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/user/Documents/VoiceModel/scripts/progress.sh
 #   live:      wsl -d Ubuntu-24.04 -- watch -n 15 bash /mnt/c/Users/user/Documents/VoiceModel/scripts/progress.sh
 # Set TARGET=<epoch> to change the completion target used for the ETA (default 100).
-LOG="/mnt/c/Users/user/Documents/VoiceModel/notes/10_autoresume.log"
-CKPT="$HOME/voicemodel/models/ne_stageA/ckpts/last.ckpt"
-STATUS="$HOME/voicemodel/models/ne_stageA/status.txt"
+RUN="${RUN:-ne_stageA}"   # set RUN=ne_stageB to track Stage B
+LOG="${LOG:-/mnt/c/Users/user/Documents/VoiceModel/notes/10_autoresume.log}"
+CKPT="$HOME/voicemodel/models/$RUN/ckpts/last.ckpt"
+STATUS="$HOME/voicemodel/models/$RUN/status.txt"
 TARGET="${TARGET:-350}"
 
 epoch_of() { printf '%s' "$1" | grep -oE '(^| )epoch=[0-9]+' | grep -oE '[0-9]+$' | head -1; }
