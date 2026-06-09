@@ -90,7 +90,11 @@ def _ensure_repo(api):
 
 
 def _is_absent(exc):
-    from huggingface_hub.utils import EntryNotFoundError, RepositoryNotFoundError
+    # error classes moved package between huggingface_hub versions (utils -> errors in 1.x)
+    try:
+        from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
+    except ImportError:
+        from huggingface_hub.utils import EntryNotFoundError, RepositoryNotFoundError
     return isinstance(exc, (EntryNotFoundError, RepositoryNotFoundError, FileNotFoundError))
 
 
