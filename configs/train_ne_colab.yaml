@@ -1,0 +1,14 @@
+# Colab variant of train_ne.yaml — identical settings, but checkpoint/status paths point at
+# /content (Colab's disk) instead of the laptop's WSL home. Same relay checkpoint cadence.
+trainer:
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: /content/run/ne_stageA/ckpts
+        every_n_train_steps: 100
+        save_last: true
+        save_top_k: 0
+    - class_path: status_writer.StatusWriter
+      init_args:
+        path: /content/run/ne_stageA/status.txt
+        every_n_steps: 10

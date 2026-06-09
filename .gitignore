@@ -19,6 +19,11 @@ venv/
 # Run logs (keep notes/*.md docs, drop the logs)
 notes/*.log
 
+# Secrets — Hugging Face token / repo pointer (these live in WSL ~/voicemodel; never commit one)
+.hf_token
+.hf_repo
+*.token
+
 # Python / OS noise
 __pycache__/
 *.pyc

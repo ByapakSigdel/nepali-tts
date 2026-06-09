@@ -239,7 +239,61 @@ batches). Toggle back to full-usage when away. Both `.wslconfig` and `10_train_a
 explaining the two modes.
 - *Status:* ✅ training resumed at epoch 224 toward 350.
 
+## Phase — Distributed training: laptop + free Colab GPUs (2026-06-09)
+
+**Goal (user).** Pool free Colab GPUs *and* the home laptop to train faster — "sharding," and "if
+there isn't a technique, invent one." Hard constraint: **no progress may be lost.**
+
+**10.1 What's actually possible (honest scoping).** True data-parallel sharding (DDP/FSDP) syncs
+gradients every step and needs datacenter-grade interconnect; across home internet (high latency,
+NAT, slow upstream) it would be thousands of times slower than one GPU — physically a non-starter.
+What *does* work, and is genuinely valuable, is **checkpoint-relay training**: one machine trains at a
+time, but they pass the full-state checkpoint (the "baton") through shared cloud storage, pooling the
+two machines' GPU-*hours* into one continuous run. Our existing auto-resume-from-`last.ckpt` loop is
+exactly the baton mechanism — we extended it over the network. (The simultaneous-both variant —
+DiLoCo-style infrequent weight averaging — is logged as a future experiment.)
+
+**10.2 Design.** Medium = **Hugging Face Hub** (free, LFS handles the 882 MB ckpt, *versioned* so even a
+bad overwrite can't lose progress, and it becomes the model's public home). Two private repos:
+`…/nepali-tts-ckpt` (baton: `last.ckpt`, `config.json`, `PROGRESS.json`, `LOCK.json`) and
+`…/nepali-tts-data` (`processed.tar.gz`). Token stored in `~/voicemodel/.hf_token` (outside git;
+also `.gitignore`d defensively).
+
+**10.3 Built.**
+- `scripts/hf_sync.py` — the engine: `push`/`pull` files, and a cloud **lock** (`claim`/`heartbeat`/
+  `release`) so the two machines never train at once. Lock auto-frees after 30 min of silence so a
+  crashed holder can't deadlock the other. `PROGRESS.json` records the epoch the cloud ckpt reached.
+- `scripts/11_train_relay.sh` — laptop wrapper: claim → sync **in the safe direction** → train (10_) →
+  push → release. *Self-healing rule:* it refuses to pull an **older** cloud ckpt over newer local
+  work (compares epochs), and only a genuine pull blocks; seeding/pushing happens in the background so
+  the laptop never stops training to upload.
+- `colab/colab_train.ipynb` — Colab shift: installs piper1-gpl (OHF-Voice) on Colab's stock
+  CUDA torch (no Blackwell pain — no `PYTORCH_JIT=0`, no cu128), pulls data + baton, trains with a
+  background pusher (every ~20 min, since Colab can drop without warning) and a `finally:` that does a
+  final push + lock release.
+- `configs/train_ne_colab.yaml` — config with `/content` paths (the laptop config hard-codes WSL
+  paths). `colab/README.md` documents the operator workflow.
+
+**10.4 Verified.** Lock engine self-test against the real repo passed (status→claim→held→release→free).
+Seeded the cloud: pushed the live 882 MB checkpoint + uploaded the 586 MB dataset (tar.gz) from the
+laptop in the background (didn't disturb training). Colab notebook is valid `nbformat` JSON; its live
+GPU environment will be validated in a real Colab session (the one piece untestable from here).
+
+**10.5 Quoting pitfall (logged).** Multi-line/heredoc scripts passed inline through `wsl -- bash -lc`
+get mangled by the Windows Git-Bash (MSYS) layer — `$VAR` lost, `/mnt/c/...` rewritten to
+`C:/Program Files/Git/mnt/c/...`. *Fix:* put real logic in **script files** and invoke them
+single-line (`bash -lc 'bash /mnt/c/.../x.sh'`); strip CR (`sed -i 's/\r$//'`) since Windows-written
+`.sh` files can carry CRLF that breaks WSL bash and heredoc delimiters.
+
+**10.6 Paper.** New contribution section: *checkpoint-relay training across ephemeral, heterogeneous
+accelerators* — pooling a consumer Blackwell laptop + preemptible free-tier cloud GPUs into one
+fault-tolerant run, full-state checkpoints guaranteeing zero progress loss across preemptions. Planned
+figure: a device-timeline (Gantt) of which machine trained which epochs + per-device throughput.
+Strengthens the thesis: *commercial-grade model on consumer/free hardware*.
+
 ## Open / ongoing
+- Validate `colab_train.ipynb` live on a Colab GPU; then add the device-timeline figure.
+- Future: DiLoCo-style simultaneous training (both machines at once, periodic weight averaging).
 - Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).
 - Upload trained model to a GitHub Release; emotions = future phase (needs emotion-labeled data — none public for Nepali).
