@@ -328,10 +328,42 @@ against the real repo (claim CAS, heartbeat, fail-closed reads, pull ABSENT-vs-e
 green. (Rejected 10 lower-severity/false findings, e.g. "torn 882 MB upload" — ext4 atomic-rename +
 single-fd streaming means the repo only ever gets a complete checkpoint.)
 
+## Phase — Parallel-training research + objective metric + EMA soup (2026-06-09)
+
+**11.1 User asked for TRUE parallel (both GPUs at once), not the baton.** Researched it (5-angle web
+study + adversarial verification of the two load-bearing claims). The technique is **DiLoCo** (DeepMind
+arXiv:2311.08105) — independent inner training + periodic outer weight-averaging, low-communication.
+**Both claims came back FALSE for *this* run** and we **deferred DiLoCo to Stage B**:
+- It barely helps now: the relay already pools both GPUs' *hours*; parallel only adds concurrency
+  (~1.3–1.6× realistic, not 2×, after sync overhead + Colab preemption), and the run is post-plateau
+  (loss flat since ~epoch 21; 350 is arbitrary). Saving a few hours of flat-tail compute isn't worth it.
+- Averaging a live VITS **GAN** across machines is unpublished/risky, and we had no quality signal to
+  detect degradation. DiLoCo's real home is the long, large-data **Stage B (SLR54)** run.
+Full design (algorithm, hooks, rendezvous, guardrails, rollout) preserved in **docs/DILOCO_DESIGN.md**.
+*Decision (user):* bank the safe wins now (CER metric + EMA-for-export), build DiLoCo for Stage B.
+
+**11.2 Objective quality metric (CER) — built + baselined.** Round-trip intelligibility:
+synthesize → Whisper-large-v3 ASR (Nepali) → CER vs input (`scripts/eval_cer.py`, +faster-whisper/jiwer).
+Expanded `eval/test_sentences_ne.txt` to 15 sentences; exported a fresh epoch-243 ONNX. **Baseline:
+CER 43.6%** (speaker 0). *Honest reading:* WER (100%) is a meaningless artifact here; the 43.6% CER is
+**inflated by Whisper's weak Nepali ASR** — the transcripts show the voice IS producing recognizable
+Nepali (e.g. "पानी परेकोले बाटो चिप्लो भयो" → "पाली परिकुले बैटो चिप्टो भयो"). Next: an **ASR noise-floor
+calibration** (run the same Whisper on the real human recordings) to separate TTS error from ASR error
+and make the number trustworthy. Useful as a relative regression tripwire even now.
+
+**11.3 EMA / model-soup for export (safe quality win) — tooling built.** `scripts/snapshot_generator.py`
+extracts generator-only weights (`model_g.*`, 693 tensors, ~120 MB vs 882 MB full ckpt) into dated
+snapshots; `scripts/soup_export.py` averages them (checkpoint-averaging / SWA / EMA, Yazici 2019 /
+Izmailov SWA) and exports a smoother ONNX — **inference-only, never fed back into training, zero risk.**
+`scripts/snapshot_loop.sh` runs in the background snapshotting every 15 epochs (first: epoch 254). Harvest
+the soup at epoch 350. *Probe finding (important):* the real module prefixes are **`model_g.`/`model_d.`**
+(NOT `net_g`/`net_d` as the DiLoCo design assumed) — corrected everywhere via `scripts/_probe_ckpt.py`.
+
 ## Open / ongoing
-- Validate `colab_train.ipynb` live on a Colab GPU (the one piece untestable from here); add the
-  device-timeline figure once a real Colab shift has run.
-- Future: DiLoCo-style simultaneous training (both machines at once, periodic weight averaging).
-- Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
+- ASR-floor calibration to make CER meaningful; then track CER across epochs.
+- At epoch 350: harvest `soup_export.py` for the final exported voice; compare CER vs single ckpt.
+- DiLoCo: implement per docs/DILOCO_DESIGN.md when Stage B (SLR54) starts.
+- Validate `colab_train.ipynb` live on a Colab GPU; add the device-timeline figure.
+- Training accumulating (auto-resume) toward 350 on the relay/laptop.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).
 - Upload trained model to a GitHub Release; emotions = future phase (needs emotion-labeled data — none public for Nepali).
