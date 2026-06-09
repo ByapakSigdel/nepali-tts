@@ -93,7 +93,7 @@ def relay_fig():
         ax.add_patch(plt.Rectangle((cx - w / 2, cy - h / 2), w, h, facecolor=fc, edgecolor=ec, lw=1.5))
         ax.text(cx, cy, text, ha="center", va="center", fontsize=8.3)
 
-    box(0.13, 0.62, 0.21, 0.34, "Laptop GPU\nRTX 5050, 8\\,GB\nBlackwell sm\\_120")
+    box(0.13, 0.62, 0.21, 0.34, "Laptop GPU\nRTX 5050, 8 GB\nBlackwell sm_120")
     box(0.87, 0.62, 0.21, 0.34, "Free cloud GPU\nColab T4\n(preemptible)")
     box(0.5, 0.62, 0.27, 0.44, "Hugging Face Hub (private)\n\nlast.ckpt  = baton\nPROGRESS.json = epoch\nLOCK.json = whose turn",
         fc="#f5e6dc", ec="#8c5533")
