@@ -331,6 +331,21 @@ pipeline, data, recipe, and distributed-training layer are released in full.
 \appendices
 \section{Reproducible Recipe: Blackwell (\texttt{sm\_120}) + WSL2 + PyTorch 2.11}
 \label{app:recipe}
+
+\textbf{Why WSL2, not native Windows.} The host is a Windows laptop, yet we train inside WSL2 (a real Linux
+kernel) rather than natively. The deciding factor is the training \emph{toolchain}, not the GPU:
+\texttt{piper1-gpl} compiles Cython/C extensions (notably \texttt{monotonic\_align}) via
+\texttt{setup.py build\_ext}, a one-line \texttt{gcc} build on Linux but fragile on Windows (it requires the
+MSVC toolchain and frequently fails); \texttt{espeak-ng}, the audio stack (soundfile/torchaudio/FLAC), and the
+entire shell-based pipeline (download, preprocessing, the auto-resume loop, the relay) are Linux-first. WSL2
+provides CUDA pass-through at near-native GPU throughput, so the Linux toolchain costs no speed. The trade-off
+is a thin Windows$\leftrightarrow$Linux seam (path translation, \texttt{localhost} forwarding to reach the web
+app from the Windows browser, and the WSL-specific CUDA quirks below); native Windows would instead pay the
+heavier price of building those C extensions and porting the pipeline. Note also that training is driven by
+background \emph{scripts}, not a notebook: a multi-day unattended run must survive disconnects, crashes, and
+reboots, which a browser-bound Jupyter kernel does not---interactive notebooks are reserved here for the
+cloud-GPU relay (Section~\ref{sec:relay}) and the web frontend, where interactivity actually helps.
+
 These failure modes are largely undocumented as of writing.
 (1)~VITS's \texttt{@torch.jit.script} fused op crashes in the TorchScript interpreter on \texttt{sm\_120}
 (mis-reported as a 20\,MiB OOM); set \texttt{PYTORCH\_JIT=0}.
