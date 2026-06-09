@@ -359,6 +359,36 @@ Izmailov SWA) and exports a smoother ONNX — **inference-only, never fed back i
 the soup at epoch 350. *Probe finding (important):* the real module prefixes are **`model_g.`/`model_d.`**
 (NOT `net_g`/`net_d` as the DiLoCo design assumed) — corrected everywhere via `scripts/_probe_ckpt.py`.
 
+## Phase — Stage B: breaking the data ceiling with SLR54 (2026-06-09)
+
+**12.1 The plateau is a DATA ceiling, not a training one.** At epoch ~267 the voice sounds the same as
+~epoch 220 (user's ear) and the loss has been flat since epoch~21. Diagnosis: 3.8h over 20 speakers is
+simply too little for TTS; more epochs cannot help. Confirmed that isolating one speaker would likely be
+*worse* (multi-speaker shares phonetic learning) and that a bigger model would overfit. The only real
+lever is more/better data. *Decision (user):* scale the data.
+
+**12.2 SLR54 inventory (`scripts/inventory_slr54.py`).** OpenSLR-54 was already downloaded (7.3GB, 14
+zip shards). Read just the master `utt_spk_text.tsv` (in shard 0) to inventory without extracting:
+**157,905 utterances, 527 speakers, ~151 hours, 16kHz FLAC**, median 3.4s/clip, transcripts present.
+That is ~40x the audio and ~26x the speakers of Stage A --- a genuine TTS-scale corpus and the
+ceiling-breaker. (≥100 clips: 512 speakers; ≥300: 295 speakers --- well distributed.)
+
+**12.3 Decision: go BIG (full corpus).** Fidelity: keep the pipeline at 22.05kHz and *upsample* SLR54
+16k→22.05k (preserves the existing warm-start vocoder + Stage-A high-fidelity voices; SLR54 voices are
+band-limited but the volume dominates for phonetics/naturalness). `scripts/06b_preprocess_slr54.py`
+reads FLACs straight from the zips (no 7GB extraction), processes identically to Stage A (mono →
+resample → peak-norm → trim silence), speaker label `slr54_<id>`, output `data/processed_b/`. Disk is
+ample (912GB free; ~24GB of wav). Running at ~120 clips/s (~20 min total), coexisting with Stage-A
+training. This is also the regime where the checkpoint-relay / DiLoCo finally pays off (a multi-week
+run), so Colab participation becomes worthwhile --- pending the one-line fix of pinning Colab's
+piper1-gpl to the laptop's commit `2a60c2b`.
+
+**12.4 Next (after preprocessing):** build a *partial* warm-start from the epoch-267 model --- transfer
+the generator/flow/vocoder weights (the Nepali phonetic learning) but a fresh, resized speaker-embedding
+table for the 527 new voices (the single→multi speaker-count change blocks a plain `--ckpt_path`
+resume); set `--model.num_speakers` to the Stage-B speaker count; then launch the long Stage-B run and
+track quality with CER.
+
 ## Open / ongoing
 - ASR-floor calibration to make CER meaningful; then track CER across epochs.
 - At epoch 350: harvest `soup_export.py` for the final exported voice; compare CER vs single ckpt.
