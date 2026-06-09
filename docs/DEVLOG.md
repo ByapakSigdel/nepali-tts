@@ -389,6 +389,22 @@ table for the 527 new voices (the single→multi speaker-count change blocks a p
 resume); set `--model.num_speakers` to the Stage-B speaker count; then launch the long Stage-B run and
 track quality with CER.
 
+**12.5 Smart warm-start built (`scripts/patch_piper_warmstart.sh`).** piper's stock warm-start
+(`_warmstart_vocoder_from_ckpt`) only copies the *vocoder* (`model_g.dec/enc_q/flow`) --- it would have
+**discarded the text encoder (`enc_p`) AND the duration predictor (`dp`, 286 params, the biggest
+submodule)**, i.e. most of the learned "how to speak Nepali". Probed the real submodules
+(`enc_p`,`dec`,`enc_q`,`flow`,`dp`,`emb_g`) and broadened `KEEP_PREFIXES` to `("model_g.","model_d.")`,
+so the **entire generator + discriminator transfer** and the loader's existing shape check skips ONLY
+the speaker table (`model_g.emb_g.weight`, `[20,512]` vs `[N,512]`) → it re-inits fresh for the new
+voices. Verified against `stageB_warmstart.ckpt` (epoch-274 snapshot): **803 of 804 params transfer, 1
+(emb_g) stays fresh.** Patch is idempotent (python3-based) so it re-applies on Colab/fresh installs.
+
+**12.6 Corrupt shard handled.** Preprocessing crashed at `asr_nepali_d.zip` (BadZipFile --- a truncated
+download). It had already processed shards 0--c (all 13 good ones) = **128,009 clips / ~112h / all 527
+speakers** before reaching the bad last shard, so the loss is only ~8h and no whole voice. Hardened
+`06b_preprocess_slr54.py` to skip corrupt zips and continue. Stage-B corpus: **527 speakers, ~112h,
+22.05kHz** in `data/processed_b/`.
+
 ## Open / ongoing
 - ASR-floor calibration to make CER meaningful; then track CER across epochs.
 - At epoch 350: harvest `soup_export.py` for the final exported voice; compare CER vs single ckpt.

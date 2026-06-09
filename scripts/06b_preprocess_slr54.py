@@ -73,7 +73,11 @@ def main():
     written = reused = skipped = 0
     spk_dur = collections.Counter()
     for zp in zips:
-        z = zipfile.ZipFile(zp)
+        try:
+            z = zipfile.ZipFile(zp)
+        except zipfile.BadZipFile:
+            print(f"  !! SKIPPING corrupt/truncated zip: {os.path.basename(zp)}", flush=True)
+            continue
         for name in z.namelist():
             if not name.endswith(".flac"):
                 continue
