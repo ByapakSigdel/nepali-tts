@@ -291,8 +291,46 @@ fault-tolerant run, full-state checkpoints guaranteeing zero progress loss acros
 figure: a device-timeline (Gantt) of which machine trained which epochs + per-device throughput.
 Strengthens the thesis: *commercial-grade model on consumer/free hardware*.
 
+**10.7 Adversarial review of the relay (55-agent workflow) + hardening.** Before trusting the relay
+with the "no progress lost" mandate, ran a multi-agent correctness review (5 dimensions × find →
+double-verify): **25 findings, 15 confirmed**. The serious ones, all now fixed:
+- *Lock starvation (critical).* `PUSH_EVERY` == `LOCK_STALE` (both 1800s) and the 882 MB push sat
+  between heartbeats, so the lock looked "dead" every cycle → the other machine could reclaim it →
+  double-training → overwrite. **Fix:** heartbeat on an INDEPENDENT 120 s timer (own loop/thread,
+  decoupled from the push); `LOCK_STALE` default → 900 s (≫ heartbeat).
+- *Fail-open lock read (critical).* `_read_lock` swallowed ALL exceptions → "lock FREE" on any
+  transient error → claim seizes a held lock. **Fix:** distinguish *absent* (EntryNotFound → free)
+  from *unknown* (any other error → `LockUnknown`); `claim`/`remote-epoch`/`pull` now **fail closed**
+  with retries; `remote-epoch` prints `ERR`/exits non-zero instead of the dangerous `-1`.
+- *config.json not relayed on the laptop side (high).* A regenerated config silently permutes the
+  phoneme/speaker map → corrupts the resumed checkpoint. **Fix:** config.json travels WITH the
+  checkpoint in the atomic push, and is pulled before training.
+- *Non-atomic push + mislabeled epoch (high/med).* `push` and `push-progress` were two commits that
+  could diverge; the epoch was read from `status.txt` (10-step cadence) while the bytes were a
+  100-step checkpoint, so the marker could lie about the bytes. **Fix:** new `push-ckpt` does ONE
+  atomic `create_commit` of last.ckpt + PROGRESS.json (+config.json), and reads the epoch **from the
+  checkpoint bytes** (`torch.load(..., mmap=True)['epoch']`) of an immutable staged copy, so marker
+  and bytes can never disagree.
+- *Swallowed pull failure / FORCE footgun / unconditional release (high).* **Fixes:** mandatory pull
+  is verified (`|| exit 4`, non-empty check); `FORCE` no longer steals a *live* lock (claim stays
+  strict — FORCE only overrides the push guard); if the FINAL push fails the relay **keeps** the lock
+  (`RELEASE_ON_EXIT=0`) so no peer can overwrite, and your epochs stay safe locally.
+- *Lock CAS (high).* claim/heartbeat/release now use `create_commit(parent_commit=…)` compare-and-set
+  + a per-session uuid nonce (stored in `~/.nepali_tts_lock_nonce`), so two simultaneous claimers
+  can't both "win".
+- *Colab (high).* cell 6 refuses to train unless cell 5 actually claimed (per-process gate); release
+  only if the final push landed; independent heartbeat thread.
+
+**The linchpin fix:** `push-ckpt` **refuses to upload a checkpoint older than the cloud's** (verified
+live: rc 9). This converts even a total lock failure from *lost progress* into merely *wasted
+compute* — neither machine can ever overwrite the other's newer epochs. Re-validated the whole engine
+against the real repo (claim CAS, heartbeat, fail-closed reads, pull ABSENT-vs-error, the guard) — all
+green. (Rejected 10 lower-severity/false findings, e.g. "torn 882 MB upload" — ext4 atomic-rename +
+single-fd streaming means the repo only ever gets a complete checkpoint.)
+
 ## Open / ongoing
-- Validate `colab_train.ipynb` live on a Colab GPU; then add the device-timeline figure.
+- Validate `colab_train.ipynb` live on a Colab GPU (the one piece untestable from here); add the
+  device-timeline figure once a real Colab shift has run.
 - Future: DiLoCo-style simultaneous training (both machines at once, periodic weight averaging).
 - Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).
