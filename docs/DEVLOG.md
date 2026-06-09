@@ -215,6 +215,30 @@ auto-resume loop **stops itself at epoch 350** — a defensible endpoint (~19 h 
 epochs/hr; the loss already plateaued by ~21). `progress.sh` ETA target defaults to 350 to match.
 - *Status:* ✅.
 
+## Phase — Test at epoch 221 + light mode (2026-06-09)
+
+**9.1 Training silently stalled at epoch 221.** Found training *not running* while we believed it was
+climbing to 350. Root cause: an earlier background **relaunch had failed** — the relaunch command passed a
+`/mnt/c/...` path as a top-level argument through Git Bash, whose MSYS layer rewrote it to
+`C:/Program Files/Git/mnt/c/...` (the same path-mangling that bit the frontend launch). The auto-resume loop
+never came back up, so the model sat idle at 221. *Fix:* always wrap WSL paths **inside** the quoted
+`bash -lc '...'` script body (never as a bare arg) so MSYS leaves them alone; relaunched and confirmed it
+resumed from `last.ckpt`. *Lesson logged:* prefer `wsl -d Ubuntu-24.04 -- bash -lc 'exec bash /mnt/c/.../x.sh'`.
+- *Status:* ✅ resumed from epoch 221.
+
+**9.2 Tested epoch-221 voice via the web app.** Exported the epoch-221 checkpoint to ONNX and served it
+(`frontend/run.sh`, REFRESH=1). Clearly more mature than the epoch-66 version. CPU-only inference, so it runs
+alongside GPU training without contention.
+
+**9.3 Switched to LIGHT mode** (user is on the laptop, wants it responsive). Reverted `.wslconfig`
+12GB/14c → **8GB/8c** (`wsl --shutdown` to apply), and lowered `--data.batch_size` 4→**2**,
+`--data.num_workers` 8→**4**. Result: GPU ~75% → **~50%** (cooler/quieter), 8 cores freed for Windows.
+*Trade-off documented for the user:* epoch-rate dropped ~16.7 → **~4.2 epochs/hr** (ETA to 350: ~13 h → **~30 h**).
+Two compounding causes: fewer cores/workers (lower it/s) **and** batch-size 2 doubling steps/epoch (616 → 1231
+batches). Toggle back to full-usage when away. Both `.wslconfig` and `10_train_autoresume.sh` carry comments
+explaining the two modes.
+- *Status:* ✅ training resumed at epoch 224 toward 350.
+
 ## Open / ongoing
 - Training accumulating (auto-resume); refresh graphs + run `eval_cer.py` as it matures.
 - Stage B (SLR54) scale-up; Nepali correction lexicon (nasalization, loanwords, numbers, currency).
