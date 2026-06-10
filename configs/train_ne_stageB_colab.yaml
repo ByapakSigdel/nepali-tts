@@ -1,0 +1,14 @@
+# Colab variant of train_ne_stageB.yaml — same fault-tolerant checkpoint cadence as the
+# laptop run, but paths point at /content (Colab's disk). Used by colab/colab_train.ipynb.
+trainer:
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: /content/run/ne_stageB/ckpts
+        every_n_train_steps: 100
+        save_last: true
+        save_top_k: 0
+    - class_path: status_writer.StatusWriter
+      init_args:
+        path: /content/run/ne_stageB/status.txt
+        every_n_steps: 10
