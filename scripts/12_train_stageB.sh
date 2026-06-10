@@ -29,8 +29,8 @@ COMMON=(
   --data.espeak_voice ne
   --data.cache_dir "$RUN/cache"
   --data.config_path "$RUN/config.json"
-  --data.batch_size 4
-  --data.num_workers 8
+  --data.batch_size ${BATCH:-4}
+  --data.num_workers ${WORKERS:-8}
   --model.sample_rate 22050
   --model.num_speakers 527
   --trainer.accelerator gpu
