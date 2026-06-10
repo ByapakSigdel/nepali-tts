@@ -1,0 +1,198 @@
+diff --git a/src/piper/train/export_onnx.py b/src/piper/train/export_onnx.py
+index 96f2872..aca7e03 100644
+--- a/src/piper/train/export_onnx.py
++++ b/src/piper/train/export_onnx.py
+@@ -94,6 +94,7 @@ def main() -> None:
+         args=dummy_input,
+         f=output_path,
+         verbose=False,
++        dynamo=False,
+         opset_version=OPSET_VERSION,
+         input_names=["input", "input_lengths", "scales", "sid"],
+         output_names=["output"],
+diff --git a/src/piper/train/vits/dataset.py b/src/piper/train/vits/dataset.py
+index 1560bd8..ecc35a5 100644
+--- a/src/piper/train/vits/dataset.py
++++ b/src/piper/train/vits/dataset.py
+@@ -5,6 +5,7 @@ import itertools
+ import json
+ import logging
+ import math
++import os
+ import unicodedata
+ from dataclasses import dataclass
+ from enum import Enum
+@@ -31,6 +32,14 @@ _LOGGER = logging.getLogger(__name__)
+ VAD_SAMPLE_RATE = 16000
+ 
+ 
++def _atomic_torch_save(obj, path: Path) -> None:
++    """Write to a temp file then rename, so an interrupted write (crash, kill,
++    power loss) can never leave a truncated file at the final path."""
++    tmp_path = path.with_suffix(path.suffix + ".tmp")
++    torch.save(obj, tmp_path)
++    os.replace(tmp_path, path)
++
++
+ @dataclass
+ class CachedUtterance:
+     phoneme_ids_path: Path
+@@ -130,6 +139,26 @@ class VitsDataModule(L.LightningDataModule):
+         if phonemes_path is not None:
+             self.phonemes_path = Path(phonemes_path)
+ 
++    def _compute_norm_audio(self, audio_path, vad) -> torch.Tensor:
++        """Load + normalize (and optionally silence-trim) one wav."""
++        audio_norm_array, audio_sample_rate = librosa.load(
++            path=audio_path, sr=self.sample_rate, mono=True
++        )
++        if self.trim_silence:
++            if audio_sample_rate != VAD_SAMPLE_RATE:
++                # VAD needs 16Khz
++                audio_16khz_array, _sr = librosa.load(
++                    path=audio_path, sr=VAD_SAMPLE_RATE, mono=True
++                )
++            else:
++                audio_16khz_array = audio_norm_array
++
++            audio_norm_array = self._trim_silence(
++                audio_norm_array, audio_16khz_array, vad
++            )
++
++        return torch.FloatTensor(audio_norm_array)
++
+     def prepare_data(self):
+         self.cache_dir.mkdir(parents=True, exist_ok=True)
+ 
+@@ -283,7 +312,7 @@ class VitsDataModule(L.LightningDataModule):
+                     # phoneme ids
+                     phoneme_ids_path = self.cache_dir / f"{cache_id}.phonemes.pt"
+                     if not phoneme_ids_path.exists():
+-                        torch.save(torch.LongTensor(phoneme_ids), phoneme_ids_path)
++                        _atomic_torch_save(torch.LongTensor(phoneme_ids), phoneme_ids_path)
+                         if report_prepare is None:
+                             report_prepare = True
+                 else:
+@@ -315,7 +344,7 @@ class VitsDataModule(L.LightningDataModule):
+                                 )
+                             )
+                         )
+-                        torch.save(torch.LongTensor(phoneme_ids), phoneme_ids_path)
++                        _atomic_torch_save(torch.LongTensor(phoneme_ids), phoneme_ids_path)
+                         if report_prepare is None:
+                             report_prepare = True
+ 
+@@ -323,27 +352,8 @@ class VitsDataModule(L.LightningDataModule):
+                 norm_audio_path = self.cache_dir / f"{cache_id}.audio.pt"
+                 audio_norm_tensor: Optional[torch.Tensor] = None
+                 if not norm_audio_path.exists():
+-                    audio_norm_array, audio_sample_rate = librosa.load(
+-                        path=audio_path, sr=self.sample_rate, mono=True
+-                    )
+-                    if self.trim_silence:
+-                        if audio_sample_rate != VAD_SAMPLE_RATE:
+-                            # VAD needs 16Khz
+-                            audio_16khz_array, _sr = librosa.load(
+-                                path=audio_path, sr=VAD_SAMPLE_RATE, mono=True
+-                            )
+-                        else:
+-                            audio_16khz_array = audio_norm_array
+-
+-                        audio_norm_array = self._trim_silence(
+-                            audio_norm_array, audio_16khz_array, vad
+-                        )
+-
+-                    audio_norm_tensor = torch.FloatTensor(audio_norm_array)
+-                    torch.save(
+-                        audio_norm_tensor,
+-                        norm_audio_path,
+-                    )
++                    audio_norm_tensor = self._compute_norm_audio(audio_path, vad)
++                    _atomic_torch_save(audio_norm_tensor, norm_audio_path)
+                     if report_prepare is None:
+                         report_prepare = True
+ 
+@@ -351,12 +361,23 @@ class VitsDataModule(L.LightningDataModule):
+                 audio_spec_path = self.cache_dir / f"{cache_id}.spec.pt"
+                 if not audio_spec_path.exists():
+                     if audio_norm_tensor is None:
+-                        # Load audio from cache
+-                        audio_norm_tensor = torch.load(norm_audio_path)
++                        # Load audio from cache; a file truncated by an unclean
++                        # shutdown is regenerated instead of crashing the run.
++                        try:
++                            audio_norm_tensor = torch.load(norm_audio_path)
++                        except Exception:
++                            _LOGGER.warning(
++                                "Corrupt cached audio, regenerating: %s",
++                                norm_audio_path,
++                            )
++                            audio_norm_tensor = self._compute_norm_audio(
++                                audio_path, vad
++                            )
++                            _atomic_torch_save(audio_norm_tensor, norm_audio_path)
+ 
+                     assert audio_norm_tensor is not None
+ 
+-                    torch.save(
++                    _atomic_torch_save(
+                         spectrogram_torch(
+                             y=audio_norm_tensor.unsqueeze(0),
+                             n_fft=self.filter_length,
+@@ -584,15 +605,31 @@ class VitsDataset(Dataset):
+ 
+     def __getitem__(self, idx) -> UtteranceTensors:
+         utt = self.utts[idx]
+-        return UtteranceTensors(
+-            phoneme_ids=torch.load(utt.phoneme_ids_path),
+-            audio_norm=torch.load(utt.audio_norm_path),
+-            spectrogram=torch.load(utt.audio_spec_path),
+-            speaker_id=(
+-                LongTensor([utt.speaker_id]) if utt.speaker_id is not None else None
+-            ),
+-            text=utt.text,
+-        )
++        try:
++            return UtteranceTensors(
++                phoneme_ids=torch.load(utt.phoneme_ids_path),
++                audio_norm=torch.load(utt.audio_norm_path),
++                spectrogram=torch.load(utt.audio_spec_path),
++                speaker_id=(
++                    LongTensor([utt.speaker_id]) if utt.speaker_id is not None else None
++                ),
++                text=utt.text,
++            )
++        except Exception as err:
++            # A cache file truncated by an unclean shutdown must not kill the
++            # run. Drop whichever files are unreadable (prepare_data regenerates
++            # them on the next start) and substitute the next utterance.
++            for path in (
++                utt.phoneme_ids_path,
++                utt.audio_norm_path,
++                utt.audio_spec_path,
++            ):
++                try:
++                    torch.load(path)
++                except Exception:
++                    _LOGGER.warning("Removing corrupt cache file (%s): %s", err, path)
++                    Path(path).unlink(missing_ok=True)
++            return self[(idx + 1) % len(self)]
+ 
+ 
+ class UtteranceCollate:
+diff --git a/src/piper/train/vits/lightning.py b/src/piper/train/vits/lightning.py
+index a1a4b5c..b4f8c5c 100644
+--- a/src/piper/train/vits/lightning.py
++++ b/src/piper/train/vits/lightning.py
+@@ -324,9 +324,8 @@ class VitsModel(L.LightningModule):
+ 
+         # Only keep vocoder/acoustic parts
+         KEEP_PREFIXES = (
+-            "model_g.dec.",
+-            "model_g.enc_q.",
+-            "model_g.flow.",
++            "model_g.",
++            "model_d.",
+         )
+ 
+         copied = 0

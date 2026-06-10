@@ -29,8 +29,8 @@ COMMON=(
   --data.espeak_voice ne
   --data.cache_dir "$RUN/cache"
   --data.config_path "$RUN/config.json"
-  --data.batch_size 2
-  --data.num_workers 4
+  --data.batch_size 4
+  --data.num_workers 8
   --model.sample_rate 22050
   --model.num_speakers 527
   --trainer.accelerator gpu
@@ -43,11 +43,15 @@ COMMON=(
   --trainer.log_every_n_steps 25
 )
 
+PICK="/mnt/c/Users/user/Documents/VoiceModel/scripts/pick_ckpt.py"
 for attempt in $(seq 1 500); do
   echo "############ STAGE-B ATTEMPT $attempt ############"
-  if [ -f "$LAST" ]; then
-    echo ">>> resuming from $LAST"
-    python -m piper.train "${COMMON[@]}" --ckpt_path "$LAST"
+  # pick_ckpt validates last.ckpt; if a shutdown truncated it, it falls back to the
+  # newest valid guardian backup instead of crash-looping on a corrupt file.
+  CK="$(python "$PICK")"
+  if [ -n "$CK" ]; then
+    echo ">>> resuming from $CK"
+    python -m piper.train "${COMMON[@]}" --ckpt_path "$CK"
   else
     echo ">>> fresh start — SMART warm-start from $WARM (full generator + discriminator)"
     python -m piper.train "${COMMON[@]}" --model.vocoder_warmstart_ckpt "$WARM"
